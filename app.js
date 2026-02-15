@@ -691,7 +691,7 @@ class StockDashboard {
         this.currentModalInterval = defaultInterval;
 
         // Show modal with symbol
-        modalSymbol.textContent = `${symbol} - Candlestick Chart`;
+        modalSymbol.textContent = symbol;
         modal.classList.remove('hidden');
 
         // Destroy existing chart if any
@@ -758,20 +758,8 @@ class StockDashboard {
             console.log('[DEBUG] No existing chart to save state from');
         }
 
-        // Update title with period
-        const periodText = {
-            '6mo': '6M',
-            '1y': '1Y',
-            '5y': '5Y',
-            '10y': '10Y',
-            'max': 'All'
-        }[range] || range;
-        const intervalText = {
-            '1d': 'Daily',
-            '1wk': 'Weekly',
-            '1mo': 'Monthly'
-        }[interval] || interval;
-        modalSymbol.textContent = `${symbol} - Candlestick Chart (${periodText}, ${intervalText})`;
+        // Keep symbol only
+        modalSymbol.textContent = symbol;
 
         try {
             // Fetch candlestick data

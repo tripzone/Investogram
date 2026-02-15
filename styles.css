@@ -471,8 +471,17 @@ button:active {
     display: none;
 }
 
-.modal-header h2 {
-    display: none;
+#modalStockSymbol {
+    position: absolute;
+    top: 29px;
+    left: 40px;
+    z-index: 10;
+    font-size: 13px;
+    font-weight: 500;
+    color: #666;
+    margin: 0;
+    letter-spacing: 0.5px;
+    pointer-events: none;
 }
 
 .modal-close-btn {
