@@ -992,6 +992,7 @@ class StockDashboard {
                         display: true,
                         position: 'top',
                         align: 'end',
+                        maxWidth: 600,
                         labels: {
                             color: '#aaa',
                             font: {
@@ -999,7 +1000,7 @@ class StockDashboard {
                             },
                             boxWidth: 20,
                             boxHeight: 2,
-                            padding: 10,
+                            padding: 12,
                             generateLabels: (chart) => {
                                 const datasets = chart.data.datasets;
                                 const labels = [];
