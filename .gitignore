@@ -1,0 +1,28 @@
+# Logs
+*.log
+server.log
+
+# Claude directory
+.claude/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+*.so
+
+# Node modules (if you add npm later)
+node_modules/
