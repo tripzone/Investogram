@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Alpha Vantage API Test</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 600px;
+            margin: 50px auto;
+            padding: 20px;
+        }
+        input {
+            width: 100%;
+            padding: 10px;
+            margin: 10px 0;
+            font-size: 14px;
+        }
+        button {
+            padding: 10px 20px;
+            background: #667eea;
+            color: white;
+            border: none;
+            cursor: pointer;
+            font-size: 14px;
+        }
+        #result {
+            margin-top: 20px;
+            padding: 15px;
+            background: #f5f5f5;
+            border-radius: 5px;
+            white-space: pre-wrap;
+            font-family: monospace;
+            font-size: 12px;
+        }
+        .error {
+            background: #fee;
+            color: #c00;
+        }
+        .success {
+            background: #efe;
+            color: #060;
+        }
+    </style>
+</head>
+<body>
+    <h1>Alpha Vantage API Key Test</h1>
+    <p>Test your Alpha Vantage API key to see if it's working:</p>
+
+    <input type="text" id="apiKey" placeholder="Paste your Alpha Vantage API key here">
+    <button onclick="testAPI()">Test API Key</button>
+
+    <div id="result"></div>
+
+    <h2>Instructions:</h2>
+    <ol>
+        <li>Go to <a href="https://www.alphavantage.co/support/#api-key" target="_blank">Alpha Vantage API Key</a></li>
+        <li>Enter your email to get a free API key</li>
+        <li>Copy the API key shown on screen</li>
+        <li>Paste it above and click "Test API Key"</li>
+    </ol>
+
+    <script>
+        async function testAPI() {
+            const apiKey = document.getElementById('apiKey').value.trim();
+            const resultDiv = document.getElementById('result');
+
+            if (!apiKey) {
+                resultDiv.className = 'error';
+                resultDiv.textContent = 'Please enter an API key';
+                return;
+            }
+
+            resultDiv.textContent = 'Testing API key...';
+            resultDiv.className = '';
+
+            try {
+                // Test with AAPL quote
+                const url = `https://www.alphavantage.co/query?function=GLOBAL_QUOTE&symbol=AAPL&apikey=${apiKey}`;
+                console.log('Testing URL:', url);
+
+                const response = await fetch(url);
+                const data = await response.json();
+
+                console.log('Response status:', response.status);
+                console.log('Response data:', data);
+
+                if (!response.ok) {
+                    resultDiv.className = 'error';
+                    resultDiv.textContent = `❌ ERROR: HTTP ${response.status}\n\n` +
+                        `Response: ${JSON.stringify(data, null, 2)}`;
+                    return;
+                }
+
+                // Check for Alpha Vantage specific errors
+                if (data['Error Message']) {
+                    resultDiv.className = 'error';
+                    resultDiv.textContent = `❌ ERROR: ${data['Error Message']}`;
+                    return;
+                }
+
+                if (data['Note']) {
+                    resultDiv.className = 'error';
+                    resultDiv.textContent = `❌ RATE LIMIT: ${data['Note']}\n\nWait a minute and try again.`;
+                    return;
+                }
+
+                if (data['Information']) {
+                    resultDiv.className = 'error';
+                    resultDiv.textContent = `⚠️ INFO: ${data['Information']}`;
+                    return;
+                }
+
+                const quote = data['Global Quote'];
+                if (quote && quote['05. price']) {
+                    const price = parseFloat(quote['05. price']);
+                    const change = parseFloat(quote['09. change']);
+                    const changePercent = quote['10. change percent'];
+
+                    resultDiv.className = 'success';
+                    resultDiv.textContent = `✅ SUCCESS! API key is valid.\n\n` +
+                        `AAPL Stock Data:\n` +
+                        `Current Price: $${price.toFixed(2)}\n` +
+                        `Change: $${change.toFixed(2)} (${changePercent})\n` +
+                        `Previous Close: $${quote['08. previous close']}\n\n` +
+                        `Your API key is working correctly!\n` +
+                        `You can now use it in the main dashboard.\n\n` +
+                        `Note: Free tier is limited to 5 calls per minute.`;
+                } else {
+                    resultDiv.className = 'error';
+                    resultDiv.textContent = `⚠️ API responded but returned unexpected data:\n\n` +
+                        JSON.stringify(data, null, 2);
+                }
+            } catch (error) {
+                resultDiv.className = 'error';
+                resultDiv.textContent = `❌ ERROR: ${error.message}\n\n` +
+                    `Check the browser console (F12) for more details.`;
+                console.error('Full error:', error);
+            }
+        }
+    </script>
+</body>
+</html>

@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Stock Dashboard</title>
+    <link rel="stylesheet" href="styles.css?v=8">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/luxon@3.4.4/build/global/luxon.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-luxon@1.3.1/dist/chartjs-adapter-luxon.umd.min.js"></script>
+    <script src="https://unpkg.com/chartjs-chart-financial@0.2.1/dist/chartjs-chart-financial.js"></script>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <div class="header-left">
+                <h1>Stocks</h1>
+                <button id="collapseAllBtn" title="Collapse all cards">◢◣</button>
+                <button id="expandAllBtn" title="Expand all cards">◥◤</button>
+            </div>
+            <div class="controls">
+                <div class="add-stock-form">
+                    <input
+                        type="text"
+                        id="stockInput"
+                        placeholder="Add symbol (e.g. AAPL:2)..."
+                        maxlength="15"
+                    >
+                    <button id="addStockBtn">Add</button>
+                </div>
+                <button id="refreshBtn">Refresh</button>
+            </div>
+        </header>
+
+        <div id="stockGrid" class="stock-grid">
+            <!-- Stock cards will be dynamically inserted here -->
+        </div>
+
+        <div id="emptyState" class="empty-state hidden">
+            <p>No stocks added yet. Add your first stock above!</p>
+        </div>
+    </div>
+
+    <!-- Candlestick Modal -->
+    <div id="candlestickModal" class="modal hidden">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2 id="modalStockSymbol"></h2>
+                <button id="modalCloseBtn" class="modal-close-btn">×</button>
+            </div>
+            <div class="modal-body">
+                <div id="candlestickChartContainer">
+                    <canvas id="candlestickChart"></canvas>
+                </div>
+                <div class="controls-container">
+                    <div class="period-selector">
+                        <button class="period-btn" data-range="6mo">6M</button>
+                        <button class="period-btn" data-range="1y">1Y</button>
+                        <button class="period-btn" data-range="5y">5Y</button>
+                        <button class="period-btn" data-range="10y">10Y</button>
+                        <button class="period-btn" data-range="max">All</button>
+                    </div>
+                    <div class="interval-selector">
+                        <button class="interval-btn" data-interval="1d">D</button>
+                        <button class="interval-btn" data-interval="1wk">W</button>
+                        <button class="interval-btn" data-interval="1mo">M</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="api.js?v=9"></script>
+    <script src="app.js?v=9"></script>
+</body>
+</html>
