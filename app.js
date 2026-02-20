@@ -14,6 +14,7 @@ class StockDashboard {
         this.selectedFile = null;
         this.selectedGraph = null;
         this.showValues = this.loadShowValuesPreference();
+        this.resizing = null; // Track active resize operation
         this.availableGraphs = [
             {
                 id: 'asset-allocation',
@@ -24,6 +25,11 @@ class StockDashboard {
         this.init();
     }
 
+    formatCurrency(value, currency = 'CAD') {
+        const symbol = currency === 'USD' ? '$' : 'CAD $';
+        return `${symbol}${value.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+    }
+
     init() {
         // Yahoo Finance doesn't need API key, so skip prompt
         // Set up event listeners
@@ -32,6 +38,7 @@ class StockDashboard {
         this.setupUploadModal();
         this.setupGraphSelector();
         this.setupValuesToggle();
+        this.updateAvailableGraphs();
         this.updateDataIndicators();
 
         // Load initial stocks
@@ -48,6 +55,35 @@ class StockDashboard {
         window.addEventListener('resize', () => {
             this.updateAllDividerWidths();
         });
+    }
+
+    updateAvailableGraphs() {
+        // Start with base graph
+        this.availableGraphs = [
+            {
+                id: 'asset-allocation',
+                title: 'All Assets',
+                cardTitle: 'Asset Allocation: All Assets',
+                description: 'Portfolio breakdown by symbol',
+                heading: 'Asset Allocation'
+            }
+        ];
+
+        // Load detected category columns
+        const categoryColumns = this.loadCategoriesColumns();
+        if (categoryColumns && categoryColumns.length > 0) {
+            // Add a graph for each category
+            categoryColumns.forEach(categoryName => {
+                this.availableGraphs.push({
+                    id: `category-${categoryName}`,
+                    title: `Category: ${categoryName}`,
+                    cardTitle: `Asset Allocation: ${categoryName}`,
+                    description: `Allocation within ${categoryName} category`,
+                    categoryColumn: categoryName,
+                    heading: 'Asset Allocation'
+                });
+            });
+        }
     }
 
     setupTabs() {
@@ -208,22 +244,50 @@ class StockDashboard {
             confirmUploadBtn.textContent = 'Uploading...';
 
             const text = await this.selectedFile.text();
-            const data = this.parseCSV(text, uploadType);
+            const result = this.parseCSV(text, uploadType);
 
-            // Validate data
-            if (!data || data.length === 0) {
-                throw new Error('No valid data found in file');
+            if (uploadType === 'categories') {
+                // Categories returns {data, columns}
+                console.log('[DEBUG] Categories result:', result);
+                if (!result || typeof result !== 'object') {
+                    throw new Error('Invalid result from CSV parser');
+                }
+                if (!result.data || result.data.length === 0) {
+                    throw new Error('No valid data found in file (parsed 0 rows)');
+                }
+                if (!result.columns || result.columns.length === 0) {
+                    throw new Error('No category columns found in file');
+                }
+
+                // Store categories data and detected columns
+                this.saveCategoriesData(result.data, result.columns);
+
+                // Update available graphs dynamically
+                this.updateAvailableGraphs();
+
+                // Update indicators
+                this.updateDataIndicators();
+
+                // Success
+                this.closeUploadModal();
+                alert(`Successfully uploaded ${result.data.length} ${uploadType} records with ${result.columns.length} categories`);
+
+            } else {
+                // Positions and trades return just data array
+                if (!result || result.length === 0) {
+                    throw new Error('No valid data found in file');
+                }
+
+                // Store in localStorage
+                this.savePortfolioData(uploadType, result);
+
+                // Update indicators
+                this.updateDataIndicators();
+
+                // Success
+                this.closeUploadModal();
+                alert(`Successfully uploaded ${result.length} ${uploadType} records`);
             }
-
-            // Store in localStorage
-            this.savePortfolioData(uploadType, data);
-
-            // Update indicators
-            this.updateDataIndicators();
-
-            // Success
-            this.closeUploadModal();
-            alert(`Successfully uploaded ${data.length} ${uploadType} records`);
 
         } catch (error) {
             console.error('Upload error:', error);
@@ -236,7 +300,8 @@ class StockDashboard {
     }
 
     parseCSV(text, type) {
-        const lines = text.trim().split('\n');
+        // Handle different line endings (\r\n for Windows, \n for Unix)
+        const lines = text.trim().split(/\r?\n/);
         if (lines.length < 2) {
             throw new Error('File is empty or has no data rows');
         }
@@ -257,6 +322,16 @@ class StockDashboard {
             if (!hasAllHeaders) {
                 throw new Error('Invalid trades file format. Expected headers: ' + requiredHeaders.join(', '));
             }
+        } else if (type === 'categories') {
+            // Validate: first column must be 'symbol', and need at least one other column
+            if (headers.length < 2) {
+                throw new Error('Invalid categories file format. Expected at least 2 columns.');
+            }
+            if (headers[0].toLowerCase() !== 'symbol') {
+                throw new Error(`Invalid categories file format. First column must be "symbol" (found "${headers[0]}")`);
+            }
+            console.log('[DEBUG] Categories headers:', headers);
+            console.log('[DEBUG] Parsing', lines.length - 1, 'data rows');
         }
 
         // Parse data rows
@@ -271,10 +346,30 @@ class StockDashboard {
                 row[header] = values[index] || '';
             });
 
-            // Basic validation
-            if (!row.symbol) continue;
+            // Basic validation - check using the actual first header name
+            const symbolColumnName = headers[0];
+            if (!row[symbolColumnName]) {
+                if (type === 'categories') {
+                    console.log('[DEBUG] Skipping row', i, '- no symbol value');
+                }
+                continue;
+            }
+
+            // For categories, normalize symbol column to lowercase 'symbol'
+            if (type === 'categories' && symbolColumnName !== 'symbol') {
+                row['symbol'] = row[symbolColumnName];
+                delete row[symbolColumnName];
+            }
 
             data.push(row);
+        }
+
+        // For categories, return both data and detected column names (excluding 'symbol')
+        if (type === 'categories') {
+            const columns = headers.slice(1); // All columns except first (symbol)
+            console.log('[DEBUG] Parsed', data.length, 'rows with', columns.length, 'category columns');
+            console.log('[DEBUG] Sample row:', data[0]);
+            return { data, columns };
         }
 
         return data;
@@ -292,9 +387,26 @@ class StockDashboard {
         return saved ? JSON.parse(saved) : null;
     }
 
+    saveCategoriesData(data, columns) {
+        localStorage.setItem('portfolio_categories', JSON.stringify(data));
+        localStorage.setItem('portfolio_categories_columns', JSON.stringify(columns));
+        localStorage.setItem('portfolio_categories_uploaded_at', new Date().toISOString());
+    }
+
+    loadCategoriesData() {
+        const saved = localStorage.getItem('portfolio_categories');
+        return saved ? JSON.parse(saved) : null;
+    }
+
+    loadCategoriesColumns() {
+        const saved = localStorage.getItem('portfolio_categories_columns');
+        return saved ? JSON.parse(saved) : null;
+    }
+
     updateDataIndicators() {
         const positionsIndicator = document.getElementById('positionsIndicator');
         const tradesIndicator = document.getElementById('tradesIndicator');
+        const categoriesIndicator = document.getElementById('categoriesIndicator');
 
         // Check if positions data exists
         const positionsData = this.loadPortfolioData('positions');
@@ -312,6 +424,15 @@ class StockDashboard {
             tradesCheck.classList.remove('hidden');
         } else {
             tradesCheck.classList.add('hidden');
+        }
+
+        // Check if categories data exists
+        const categoriesData = this.loadCategoriesData();
+        const categoriesCheck = categoriesIndicator.querySelector('.indicator-check');
+        if (categoriesData && categoriesData.length > 0) {
+            categoriesCheck.classList.remove('hidden');
+        } else {
+            categoriesCheck.classList.add('hidden');
         }
     }
 
@@ -388,12 +509,12 @@ class StockDashboard {
     showGraphDropdown() {
         const graphDropdown = document.getElementById('graphDropdown');
         graphDropdown.classList.remove('hidden');
-        this.renderGraphOptions(this.availableGraphs);
+        this.renderGraphOptions(this.availableGraphs, true);
     }
 
     filterGraphs(query) {
         if (!query) {
-            this.renderGraphOptions(this.availableGraphs);
+            this.renderGraphOptions(this.availableGraphs, true);
             return;
         }
 
@@ -402,10 +523,10 @@ class StockDashboard {
                    graph.description.toLowerCase().includes(query);
         });
 
-        this.renderGraphOptions(filtered);
+        this.renderGraphOptions(filtered, false);
     }
 
-    renderGraphOptions(graphs) {
+    renderGraphOptions(graphs, showHeadings = true) {
         const graphList = document.getElementById('graphList');
         graphList.innerHTML = '';
 
@@ -414,31 +535,65 @@ class StockDashboard {
             return;
         }
 
-        graphs.forEach(graph => {
-            const option = document.createElement('div');
-            option.className = 'graph-option';
-            option.dataset.graphId = graph.id;
+        if (showHeadings) {
+            // Group graphs by heading
+            const grouped = {};
+            graphs.forEach(graph => {
+                const heading = graph.heading || 'Other';
+                if (!grouped[heading]) {
+                    grouped[heading] = [];
+                }
+                grouped[heading].push(graph);
+            });
 
-            // Check if already added
-            const alreadyAdded = this.portfolioGraphs.includes(graph.id);
-            if (alreadyAdded) {
-                option.style.opacity = '0.5';
-                option.style.cursor = 'default';
-            }
+            // Render each heading group
+            Object.keys(grouped).forEach(heading => {
+                // Add heading
+                const headingEl = document.createElement('div');
+                headingEl.className = 'graph-heading';
+                headingEl.textContent = heading;
+                graphList.appendChild(headingEl);
 
-            option.innerHTML = `
-                <div class="graph-option-title">${graph.title}${alreadyAdded ? ' (added)' : ''}</div>
-                <div class="graph-option-description">${graph.description}</div>
-            `;
-
-            if (!alreadyAdded) {
-                option.addEventListener('click', () => {
-                    this.selectGraph(graph);
+                // Add graphs under this heading
+                grouped[heading].forEach(graph => {
+                    this.renderGraphOption(graphList, graph);
                 });
-            }
+            });
+        } else {
+            // Flat list (when searching)
+            graphs.forEach(graph => {
+                this.renderGraphOption(graphList, graph);
+            });
+        }
+    }
 
-            graphList.appendChild(option);
+    renderGraphOption(graphList, graph) {
+        const option = document.createElement('div');
+        option.className = 'graph-option';
+        option.dataset.graphId = graph.id;
+
+        // Check if already added
+        const alreadyAdded = this.portfolioGraphs.some(g => {
+            const id = typeof g === 'string' ? g : g.id;
+            return id === graph.id;
         });
+        if (alreadyAdded) {
+            option.style.opacity = '0.5';
+            option.style.cursor = 'default';
+        }
+
+        option.innerHTML = `
+            <div class="graph-option-title">${graph.title}${alreadyAdded ? ' (added)' : ''}</div>
+            <div class="graph-option-description">${graph.description}</div>
+        `;
+
+        if (!alreadyAdded) {
+            option.addEventListener('click', () => {
+                this.selectGraph(graph);
+            });
+        }
+
+        graphList.appendChild(option);
     }
 
     selectGraph(graph) {
@@ -465,13 +620,18 @@ class StockDashboard {
         if (!this.selectedGraph) return;
 
         // Check if already added
-        if (this.portfolioGraphs.includes(this.selectedGraph.id)) {
+        const alreadyExists = this.portfolioGraphs.some(g => {
+            const id = typeof g === 'string' ? g : g.id;
+            return id === this.selectedGraph.id;
+        });
+
+        if (alreadyExists) {
             alert('Graph already added');
             return;
         }
 
-        // Add to list
-        this.portfolioGraphs.push(this.selectedGraph.id);
+        // Add to list with default width of 3 (full width)
+        this.portfolioGraphs.push({ id: this.selectedGraph.id, width: 3 });
         this.savePortfolioGraphs();
 
         // Clear selection
@@ -490,7 +650,17 @@ class StockDashboard {
 
     loadPortfolioGraphs() {
         const saved = localStorage.getItem('portfolio_graphs');
-        return saved ? JSON.parse(saved) : [];
+        if (!saved) return [];
+
+        const parsed = JSON.parse(saved);
+        // Migrate old format (array of strings) to new format (array of objects)
+        // Default to width 3 (full width) for better backward compatibility
+        return parsed.map(item => {
+            if (typeof item === 'string') {
+                return { id: item, width: 3 };
+            }
+            return item;
+        });
     }
 
     savePortfolioGraphs() {
@@ -511,25 +681,51 @@ class StockDashboard {
 
         portfolioView.innerHTML = '';
 
-        this.portfolioGraphs.forEach((graphId, index) => {
+        this.portfolioGraphs.forEach((graphEntry, index) => {
+            const graphId = typeof graphEntry === 'string' ? graphEntry : graphEntry.id;
+            const width = typeof graphEntry === 'string' ? 1 : (graphEntry.width || 1);
+
             const graphDef = this.availableGraphs.find(g => g.id === graphId);
             if (!graphDef) return;
 
             const graphCard = document.createElement('div');
             graphCard.className = 'portfolio-graph-card';
+            graphCard.id = `portfolio-graph-${graphId}`;
+            graphCard.dataset.graphId = graphId;
+            graphCard.dataset.width = width;
+            graphCard.dataset.index = index;
+            graphCard.draggable = true;
+
+            // Apply width - span columns in the grid (1, 2, or 3 columns)
+            graphCard.style.gridColumn = `span ${width}`;
+
             const canvasId = `portfolio-chart-${index}`;
 
             graphCard.innerHTML = `
                 <div class="graph-card-header">
-                    <h3>${graphDef.title}</h3>
+                    <span class="graph-drag-handle">⋮⋮</span>
+                    <h3>${graphDef.cardTitle || graphDef.title}</h3>
                     <button class="remove-graph-btn" onclick="dashboard.removeGraph('${graphId}')">×</button>
                 </div>
                 <div class="graph-card-body">
                     <canvas id="${canvasId}"></canvas>
                 </div>
+                <div class="graph-resize-handle"></div>
             `;
 
             portfolioView.appendChild(graphCard);
+
+            // Add resize functionality
+            const resizeHandle = graphCard.querySelector('.graph-resize-handle');
+            resizeHandle.addEventListener('mousedown', (e) => this.handleGraphResizeStart(e, graphId));
+
+            // Add drag event listeners
+            graphCard.addEventListener('dragstart', (e) => this.handleGraphDragStart(e));
+            graphCard.addEventListener('dragover', (e) => this.handleGraphDragOver(e));
+            graphCard.addEventListener('drop', (e) => this.handleGraphDrop(e));
+            graphCard.addEventListener('dragend', (e) => this.handleGraphDragEnd(e));
+            graphCard.addEventListener('dragenter', (e) => this.handleGraphDragEnter(e));
+            graphCard.addEventListener('dragleave', (e) => this.handleGraphDragLeave(e));
 
             // Render specific graph type
             setTimeout(() => {
@@ -538,10 +734,17 @@ class StockDashboard {
         });
     }
 
-    renderGraph(graphId, canvasId) {
+    async renderGraph(graphId, canvasId) {
+        // Check if this is a category graph
+        if (graphId.startsWith('category-')) {
+            const categoryName = graphId.replace('category-', '');
+            await this.renderCategoryAllocation(canvasId, categoryName);
+            return;
+        }
+
         switch(graphId) {
             case 'asset-allocation':
-                this.renderAssetAllocation(canvasId);
+                await this.renderAssetAllocation(canvasId);
                 break;
             default:
                 // Show placeholder for unimplemented graphs
@@ -557,7 +760,39 @@ class StockDashboard {
         }
     }
 
-    renderAssetAllocation(canvasId) {
+    async getExchangeRate(from, to) {
+        // Check cache first (cache for 1 hour)
+        const cacheKey = `exchange_rate_${from}_${to}`;
+        const cached = localStorage.getItem(cacheKey);
+        const cacheTime = localStorage.getItem(`${cacheKey}_time`);
+
+        if (cached && cacheTime) {
+            const age = Date.now() - parseInt(cacheTime);
+            if (age < 3600000) { // 1 hour
+                return parseFloat(cached);
+            }
+        }
+
+        try {
+            // Use frankfurter.app API (free, no API key needed)
+            const response = await fetch(`https://api.frankfurter.app/latest?from=${from}&to=${to}`);
+            const data = await response.json();
+
+            if (data.rates && data.rates[to]) {
+                const rate = data.rates[to];
+                // Cache the rate
+                localStorage.setItem(cacheKey, rate.toString());
+                localStorage.setItem(`${cacheKey}_time`, Date.now().toString());
+                return rate;
+            }
+        } catch (error) {
+            console.error('Error fetching exchange rate:', error);
+        }
+
+        return null;
+    }
+
+    async renderAssetAllocation(canvasId) {
         const positionsData = this.loadPortfolioData('positions');
         const canvas = document.getElementById(canvasId);
 
@@ -572,38 +807,80 @@ class StockDashboard {
             return;
         }
 
-        // Calculate total portfolio value
-        const totalValue = positionsData.reduce((sum, pos) => {
-            return sum + parseFloat(pos.total_cost || 0);
+        // Get exchange rate USD -> CAD
+        const usdToCad = await this.getExchangeRate('USD', 'CAD');
+
+        if (!usdToCad) {
+            const ctx = canvas.getContext('2d');
+            ctx.fillStyle = '#666';
+            ctx.font = '13px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto';
+            ctx.textAlign = 'center';
+            ctx.fillText('Unable to fetch exchange rates. Please try again.', canvas.width / 2, canvas.height / 2);
+            return;
+        }
+
+        // Convert all values to CAD
+        const positionsInCAD = positionsData.map(pos => {
+            const value = parseFloat(pos.total_cost || 0);
+            const valueInCAD = pos.currency === 'USD' ? value * usdToCad : value;
+
+            return {
+                ...pos,
+                total_cost_cad: valueInCAD,
+                original_value: value,
+                original_currency: pos.currency
+            };
+        });
+
+        // Calculate total portfolio value in CAD
+        const totalValue = positionsInCAD.reduce((sum, pos) => {
+            return sum + pos.total_cost_cad;
         }, 0);
 
-        // Sort by total_cost descending
-        const sortedPositions = [...positionsData].sort((a, b) => {
-            return parseFloat(b.total_cost || 0) - parseFloat(a.total_cost || 0);
+        // Sort by total_cost_cad descending
+        const sortedPositions = [...positionsInCAD].sort((a, b) => {
+            return b.total_cost_cad - a.total_cost_cad;
         });
 
         // Prepare datasets - one dataset per asset for stacked bar
         const datasets = [];
         const colors = [];
 
-        sortedPositions.forEach((pos, index) => {
-            const value = parseFloat(pos.total_cost || 0);
-            const percentage = (value / totalValue * 100).toFixed(2);
+        // Define color palette
+        const colorPalette = [
+            '#1E4D5C', // Dark teal
+            '#2A6B7D', // Medium teal
+            '#3D8A9E', // Bright teal
+            '#5FA89D', // Seafoam
+            '#7FB685', // Sage green
+            '#9FBD6E', // Olive
+            '#C5B358', // Gold
+            '#D9A54A', // Mustard
+            '#E89447', // Orange gold
+            '#EE7F43', // Tangerine
+            '#F16940', // Bright orange
+            '#D95944', // Rust orange
+            '#C04848'  // Rust red
+        ];
 
-            // Generate colors
-            const hue = (index * 360 / sortedPositions.length) % 360;
-            const color = `hsl(${hue}, 60%, 55%)`;
+        sortedPositions.forEach((pos, index) => {
+            const valueCAD = pos.total_cost_cad;
+            const percentage = (valueCAD / totalValue * 100).toFixed(2);
+
+            // Interpolate color based on position
+            const color = this.interpolateColor(colorPalette, index, sortedPositions.length);
             colors.push(color);
 
             datasets.push({
                 label: pos.symbol,
                 data: [percentage],
                 backgroundColor: color,
-                borderColor: color.replace('55%', '45%'),
+                borderColor: color,
                 borderWidth: 1,
                 percentage: percentage,
-                value: value,
-                currency: pos.currency || 'USD'
+                value: valueCAD,
+                originalValue: pos.original_value,
+                originalCurrency: pos.original_currency
             });
         });
 
@@ -657,11 +934,11 @@ class StockDashboard {
                             const cleanSymbol = dataset.label.split('.')[0];
 
                             // Estimate label height when rotated (becomes width)
-                            // Each character is roughly 6.5px wide when rotated
-                            const labelWidth = cleanSymbol.length * 6.5;
+                            // Each character is roughly 5px wide when rotated (relaxed)
+                            const labelWidth = cleanSymbol.length * 5;
 
-                            // Only show if label fits with minimal padding
-                            return segmentWidth > labelWidth + 4;
+                            // Only show if label fits (no padding requirement)
+                            return segmentWidth > labelWidth;
                         }
                     },
                     tooltip: {
@@ -679,9 +956,296 @@ class StockDashboard {
                                 const lines = [];
 
                                 if (showValues) {
-                                    lines.push(`Value: ${dataset.currency} ${dataset.value.toFixed(2)}`);
+                                    lines.push(`Value: ${window.dashboard.formatCurrency(dataset.value, 'CAD')}`);
+                                    // Show original currency if it was USD
+                                    if (dataset.originalCurrency === 'USD') {
+                                        lines.push(`(${window.dashboard.formatCurrency(dataset.originalValue, 'USD')})`);
+                                    }
                                 }
                                 lines.push(`Allocation: ${dataset.percentage}%`);
+
+                                return lines;
+                            }
+                        }
+                    }
+                },
+                scales: {
+                    x: {
+                        stacked: true,
+                        max: 100,
+                        grid: {
+                            color: '#2a2a2a',
+                            drawBorder: false
+                        },
+                        ticks: {
+                            color: '#666',
+                            callback: function(value) {
+                                return value + '%';
+                            }
+                        }
+                    },
+                    y: {
+                        stacked: true,
+                        display: false,
+                        grid: {
+                            display: false,
+                            drawBorder: false
+                        }
+                    }
+                }
+            }
+        });
+
+        // Store chart instance
+        this.portfolioCharts.set(canvasId, chart);
+    }
+
+    showGraphMessage(canvas, message) {
+        const ctx = canvas.getContext('2d');
+        ctx.fillStyle = '#666';
+        ctx.font = '13px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto';
+        ctx.textAlign = 'center';
+        ctx.fillText(message, canvas.width / 2, canvas.height / 2);
+    }
+
+    // Interpolate between colors in a palette
+    interpolateColor(palette, index, totalItems) {
+        // Map index to a position in the palette (0 to palette.length - 1)
+        const position = (index / (totalItems - 1)) * (palette.length - 1);
+        const lowerIndex = Math.floor(position);
+        const upperIndex = Math.ceil(position);
+        const fraction = position - lowerIndex;
+
+        // If at exact palette position, return that color
+        if (fraction === 0) {
+            return palette[lowerIndex];
+        }
+
+        // Parse hex colors
+        const parseHex = (hex) => {
+            const r = parseInt(hex.slice(1, 3), 16);
+            const g = parseInt(hex.slice(3, 5), 16);
+            const b = parseInt(hex.slice(5, 7), 16);
+            return { r, g, b };
+        };
+
+        // Interpolate between two colors
+        const color1 = parseHex(palette[lowerIndex]);
+        const color2 = parseHex(palette[upperIndex]);
+
+        const r = Math.round(color1.r + (color2.r - color1.r) * fraction);
+        const g = Math.round(color1.g + (color2.g - color1.g) * fraction);
+        const b = Math.round(color1.b + (color2.b - color1.b) * fraction);
+
+        return `#${r.toString(16).padStart(2, '0')}${g.toString(16).padStart(2, '0')}${b.toString(16).padStart(2, '0')}`;
+    }
+
+    async renderCategoryAllocation(canvasId, categoryName) {
+        const positionsData = this.loadPortfolioData('positions');
+        const categoriesData = this.loadCategoriesData();
+        const canvas = document.getElementById(canvasId);
+
+        if (!canvas) return;
+
+        // Validate data availability
+        if (!positionsData || positionsData.length === 0) {
+            this.showGraphMessage(canvas, 'No positions data available. Upload positions data to see this chart.');
+            return;
+        }
+
+        if (!categoriesData || categoriesData.length === 0) {
+            this.showGraphMessage(canvas, 'No categories data available. Upload categories data to see this chart.');
+            return;
+        }
+
+        // Get exchange rate USD -> CAD
+        const usdToCad = await this.getExchangeRate('USD', 'CAD');
+
+        if (!usdToCad) {
+            this.showGraphMessage(canvas, 'Unable to fetch exchange rates. Please try again.');
+            return;
+        }
+
+        // Create a map of symbol -> category value
+        const symbolToCategoryValue = new Map();
+        categoriesData.forEach(row => {
+            const categoryValue = row[categoryName];
+            if (categoryValue && categoryValue.trim() !== '' && categoryValue !== 'N/A') {
+                symbolToCategoryValue.set(row.symbol, categoryValue.trim());
+            }
+        });
+
+        // Convert all positions to CAD and add category value
+        const positionsWithCategory = [];
+        positionsData.forEach(pos => {
+            const categoryValue = symbolToCategoryValue.get(pos.symbol);
+            if (!categoryValue) {
+                console.warn(`Symbol ${pos.symbol} not found in ${categoryName} category or has N/A value`);
+                return; // Skip positions without category data
+            }
+
+            const value = parseFloat(pos.total_cost || 0);
+            const valueInCAD = pos.currency === 'USD' ? value * usdToCad : value;
+
+            positionsWithCategory.push({
+                symbol: pos.symbol,
+                categoryValue: categoryValue,
+                total_cost_cad: valueInCAD,
+                original_value: value,
+                original_currency: pos.currency
+            });
+        });
+
+        if (positionsWithCategory.length === 0) {
+            this.showGraphMessage(canvas, `No position data found for stocks in ${categoryName} category.`);
+            return;
+        }
+
+        // Group by category value and sum the totals
+        const categoryGroups = new Map();
+        positionsWithCategory.forEach(pos => {
+            const existing = categoryGroups.get(pos.categoryValue) || {
+                categoryValue: pos.categoryValue,
+                total_cad: 0,
+                stocks: []
+            };
+            existing.total_cad += pos.total_cost_cad;
+            existing.stocks.push(pos);
+            categoryGroups.set(pos.categoryValue, existing);
+        });
+
+        // Calculate total value across all groups
+        const totalValue = Array.from(categoryGroups.values()).reduce((sum, group) => {
+            return sum + group.total_cad;
+        }, 0);
+
+        // Sort groups by total value descending
+        const sortedGroups = Array.from(categoryGroups.values()).sort((a, b) => {
+            return b.total_cad - a.total_cad;
+        });
+
+        // Prepare datasets - one dataset per category value for stacked bar
+        const datasets = [];
+
+        // Define color palette
+        const colorPalette = [
+            '#1E4D5C', // Dark teal
+            '#2A6B7D', // Medium teal
+            '#3D8A9E', // Bright teal
+            '#5FA89D', // Seafoam
+            '#7FB685', // Sage green
+            '#9FBD6E', // Olive
+            '#C5B358', // Gold
+            '#D9A54A', // Mustard
+            '#E89447', // Orange gold
+            '#EE7F43', // Tangerine
+            '#F16940', // Bright orange
+            '#D95944', // Rust orange
+            '#C04848'  // Rust red
+        ];
+
+        sortedGroups.forEach((group, index) => {
+            const valueCAD = group.total_cad;
+            const percentage = (valueCAD / totalValue * 100).toFixed(2);
+
+            // Interpolate color based on position
+            const color = this.interpolateColor(colorPalette, index, sortedGroups.length);
+
+            datasets.push({
+                label: group.categoryValue,
+                data: [percentage],
+                backgroundColor: color,
+                borderColor: color,
+                borderWidth: 1,
+                percentage: percentage,
+                value: valueCAD,
+                stocks: group.stocks
+            });
+        });
+
+        const ctx = canvas.getContext('2d');
+        const showValues = this.showValues;
+
+        const chart = new Chart(ctx, {
+            type: 'bar',
+            data: {
+                labels: [categoryName],
+                datasets: datasets
+            },
+            plugins: [ChartDataLabels],
+            options: {
+                indexAxis: 'y',
+                responsive: true,
+                maintainAspectRatio: false,
+                animation: false,
+                plugins: {
+                    legend: {
+                        display: false
+                    },
+                    datalabels: {
+                        color: 'rgba(255, 255, 255, 0.9)',
+                        font: {
+                            size: 11,
+                            weight: 600
+                        },
+                        rotation: -90,
+                        align: 'center',
+                        anchor: 'center',
+                        clip: true,
+                        formatter: function(value, context) {
+                            // Return the category value as the label
+                            return context.dataset.label;
+                        },
+                        display: function(context) {
+                            // Calculate if the label fits
+                            const dataset = context.dataset;
+                            const percentage = parseFloat(dataset.percentage);
+
+                            // Get the chart width
+                            const chartWidth = context.chart.width;
+
+                            // Calculate the segment width (percentage of chart width)
+                            const segmentWidth = (percentage / 100) * chartWidth;
+
+                            // Get clean label (category value)
+                            const label = dataset.label;
+
+                            // Estimate label height when rotated (becomes width)
+                            // Each character is roughly 5px wide when rotated (relaxed)
+                            const labelWidth = label.length * 5;
+
+                            // Only show if label fits (no padding requirement)
+                            return segmentWidth > labelWidth;
+                        }
+                    },
+                    tooltip: {
+                        backgroundColor: '#1a1a1a',
+                        borderColor: '#333',
+                        borderWidth: 1,
+                        titleColor: '#fff',
+                        bodyColor: '#aaa',
+                        callbacks: {
+                            title: function(context) {
+                                return context[0].dataset.label;
+                            },
+                            label: function(context) {
+                                const dataset = context.dataset;
+                                const lines = [];
+
+                                if (showValues) {
+                                    lines.push(`Value: ${window.dashboard.formatCurrency(dataset.value, 'CAD')}`);
+                                }
+                                lines.push(`Allocation: ${dataset.percentage}%`);
+
+                                // Show list of stocks in this category value
+                                if (dataset.stocks && dataset.stocks.length > 0) {
+                                    lines.push(''); // Empty line
+                                    lines.push('Stocks:');
+                                    dataset.stocks.forEach(stock => {
+                                        const stockPercent = (stock.total_cost_cad / dataset.value * 100).toFixed(1);
+                                        lines.push(`  ${stock.symbol}: ${stockPercent}%`);
+                                    });
+                                }
 
                                 return lines;
                             }
@@ -722,9 +1286,133 @@ class StockDashboard {
     removeGraph(graphId) {
         if (!confirm('Remove this graph?')) return;
 
-        this.portfolioGraphs = this.portfolioGraphs.filter(id => id !== graphId);
+        this.portfolioGraphs = this.portfolioGraphs.filter(g => {
+            const id = typeof g === 'string' ? g : g.id;
+            return id !== graphId;
+        });
         this.savePortfolioGraphs();
         this.renderPortfolioGraphs();
+    }
+
+    // Graph drag and drop handlers
+    handleGraphDragStart(e) {
+        e.target.classList.add('dragging');
+        e.dataTransfer.effectAllowed = 'move';
+        e.dataTransfer.setData('text/html', e.target.innerHTML);
+        this.draggedElement = e.target;
+    }
+
+    handleGraphDragOver(e) {
+        if (e.preventDefault) {
+            e.preventDefault();
+        }
+        e.dataTransfer.dropEffect = 'move';
+        return false;
+    }
+
+    handleGraphDragEnter(e) {
+        const card = e.target.closest('.portfolio-graph-card');
+        if (card && card !== this.draggedElement) {
+            card.classList.add('drag-over');
+        }
+    }
+
+    handleGraphDragLeave(e) {
+        const card = e.target.closest('.portfolio-graph-card');
+        // Only remove the class if we're actually leaving the card (not just entering a child)
+        if (card && !card.contains(e.relatedTarget)) {
+            card.classList.remove('drag-over');
+        }
+    }
+
+    handleGraphDrop(e) {
+        if (e.stopPropagation) {
+            e.stopPropagation();
+        }
+
+        const targetCard = e.target.closest('.portfolio-graph-card');
+
+        if (this.draggedElement !== targetCard && targetCard) {
+            const portfolioView = document.getElementById('portfolioView');
+
+            // Get graph IDs
+            const draggedGraphId = this.draggedElement.dataset.graphId;
+            const targetGraphId = targetCard.dataset.graphId;
+
+            // Find indices in portfolioGraphs
+            const draggedIndex = this.portfolioGraphs.findIndex(g => {
+                const id = typeof g === 'string' ? g : g.id;
+                return id === draggedGraphId;
+            });
+            const targetIndex = this.portfolioGraphs.findIndex(g => {
+                const id = typeof g === 'string' ? g : g.id;
+                return id === targetGraphId;
+            });
+
+            // Get the full entry to move
+            const draggedEntry = this.portfolioGraphs[draggedIndex];
+
+            // Update the array order
+            this.portfolioGraphs.splice(draggedIndex, 1);
+            this.portfolioGraphs.splice(targetIndex, 0, draggedEntry);
+
+            // Just reorder the DOM elements without re-rendering
+            if (draggedIndex < targetIndex) {
+                // Moving forward - insert after target
+                targetCard.parentNode.insertBefore(this.draggedElement, targetCard.nextSibling);
+            } else {
+                // Moving backward - insert before target
+                targetCard.parentNode.insertBefore(this.draggedElement, targetCard);
+            }
+
+            // Save the new order
+            this.savePortfolioGraphs();
+        }
+
+        if (targetCard) {
+            targetCard.classList.remove('drag-over');
+        }
+        return false;
+    }
+
+    handleGraphDragEnd(e) {
+        e.target.classList.remove('dragging');
+        // Remove drag-over class from all graph cards
+        document.querySelectorAll('.portfolio-graph-card').forEach(card => {
+            card.classList.remove('drag-over');
+        });
+    }
+
+    // Graph resize functionality
+    handleGraphResizeStart(e, graphId) {
+        e.preventDefault();
+        e.stopPropagation();
+
+        const card = document.getElementById(`portfolio-graph-${graphId}`);
+        const startX = e.clientX;
+        const startWidth = card.offsetWidth;
+        const portfolioView = document.getElementById('portfolioView');
+        // Get full container width for calculation
+        const containerWidth = portfolioView.offsetWidth - 40; // Subtract padding
+        const baseWidth = containerWidth; // Full container width (we'll divide by 3 for columns)
+
+        this.resizing = {
+            graphId,
+            card,
+            startX,
+            startWidth,
+            baseWidth,
+            isGraph: true
+        };
+
+        // Add visual feedback
+        card.classList.add('resizing');
+        document.body.style.cursor = 'ew-resize';
+        document.body.style.userSelect = 'none';
+
+        // Attach move and up handlers to document (use unified handlers)
+        document.addEventListener('mousemove', this.handleResizeMove);
+        document.addEventListener('mouseup', this.handleResizeEnd);
     }
 
     setupEventListeners() {
@@ -897,11 +1585,12 @@ class StockDashboard {
             return;
         }
 
-        // Check if user wants to add a divider
-        if (inputValue === '--') {
-            this.stockList.push('--');
+        // Check if user wants to add a divider (with or without title)
+        if (inputValue.startsWith('--')) {
+            this.stockList.push(inputValue);
             this.saveStockList();
-            this.renderDivider();
+            const title = inputValue.substring(2).trim(); // Get text after "--"
+            this.renderDivider(this.stockList.length - 1, title);
             input.value = '';
             return;
         }
@@ -951,8 +1640,9 @@ class StockDashboard {
     }
 
     parseStockEntry(entry) {
-        if (entry === '--') {
-            return { symbol: '--', width: 1, isDivider: true };
+        if (entry.startsWith('--')) {
+            const title = entry.substring(2).trim();
+            return { symbol: '--', width: 1, isDivider: true, title: title };
         }
         if (entry.includes(':')) {
             const parts = entry.split(':');
@@ -999,7 +1689,7 @@ class StockDashboard {
         this.stockList.forEach((entry, index) => {
             const parsed = this.parseStockEntry(entry);
             if (parsed.isDivider) {
-                this.renderDivider(index);
+                this.renderDivider(index, parsed.title);
             } else {
                 this.renderStock(entry);
             }
@@ -1042,18 +1732,32 @@ class StockDashboard {
         }
     }
 
-    renderDivider(index) {
+    renderDivider(index, title = '') {
         const grid = document.getElementById('stockGrid');
         const divider = document.createElement('div');
         divider.className = 'stock-divider';
+        if (title) {
+            divider.classList.add('has-title');
+        }
         divider.draggable = true;
         divider.dataset.symbol = '--';
         divider.dataset.index = index;
 
-        divider.innerHTML = `
-            <div class="divider-line"></div>
-            <button class="divider-remove-btn">×</button>
-        `;
+        if (title) {
+            divider.innerHTML = `
+                <div class="divider-content">
+                    <div class="divider-line"></div>
+                    <span class="divider-title">${title}</span>
+                    <div class="divider-line"></div>
+                </div>
+                <button class="divider-remove-btn">×</button>
+            `;
+        } else {
+            divider.innerHTML = `
+                <div class="divider-line"></div>
+                <button class="divider-remove-btn">×</button>
+            `;
+        }
 
         // Add remove button click handler
         const removeBtn = divider.querySelector('.divider-remove-btn');
@@ -1158,6 +1862,7 @@ class StockDashboard {
             <div class="ma-info">
                 <span class="ma-comparison">Loading...</span>
             </div>
+            <div class="resize-handle"></div>
         `;
 
         // Add click handler to toggle collapse on the metrics area
@@ -1174,6 +1879,10 @@ class StockDashboard {
         card.addEventListener('dragend', (e) => this.handleDragEnd(e));
         card.addEventListener('dragenter', (e) => this.handleDragEnter(e));
         card.addEventListener('dragleave', (e) => this.handleDragLeave(e));
+
+        // Add resize functionality
+        const resizeHandle = card.querySelector('.resize-handle');
+        resizeHandle.addEventListener('mousedown', (e) => this.handleResizeStart(e, symbol));
 
         return card;
     }
@@ -1497,6 +2206,154 @@ class StockDashboard {
         // Remove drag-over class from all cards and dividers
         document.querySelectorAll('.stock-card, .stock-divider').forEach(card => {
             card.classList.remove('drag-over');
+        });
+    }
+
+    // Resize functionality
+    handleResizeStart(e, symbol) {
+        e.preventDefault();
+        e.stopPropagation();
+
+        const card = document.getElementById(`stock-${symbol}`);
+        const startX = e.clientX;
+        const startWidth = card.offsetWidth;
+        const baseWidth = this.stockList.length > 6 ? 240 : 280;
+
+        // Disable dragging while resizing
+        card.draggable = false;
+
+        this.resizing = {
+            symbol,
+            card,
+            startX,
+            startWidth,
+            baseWidth
+        };
+
+        // Add visual feedback
+        card.classList.add('resizing');
+        document.body.style.cursor = 'ew-resize';
+        document.body.style.userSelect = 'none';
+
+        // Attach move and up handlers to document
+        document.addEventListener('mousemove', this.handleResizeMove);
+        document.addEventListener('mouseup', this.handleResizeEnd);
+    }
+
+    handleResizeMove = (e) => {
+        if (!this.resizing) return;
+
+        // Handle graph resize
+        if (this.resizing.isGraph) {
+            const { card, startX, startWidth, baseWidth } = this.resizing;
+            const deltaX = e.clientX - startX;
+            const newWidth = startWidth + deltaX;
+
+            // Calculate the width multiplier based on 1/3 width increments
+            // baseWidth is full container, so each column is baseWidth/3
+            const columnWidth = baseWidth / 3;
+            const multiplier = Math.max(1, Math.round(newWidth / columnWidth));
+
+            // Limit to reasonable range (1 to 3 columns)
+            const limitedMultiplier = Math.min(3, multiplier);
+
+            // Update grid column span
+            card.style.gridColumn = `span ${limitedMultiplier}`;
+            return;
+        }
+
+        // Handle stock card resize
+        const { card, startX, startWidth, baseWidth } = this.resizing;
+        const deltaX = e.clientX - startX;
+        const newWidth = startWidth + deltaX;
+
+        // Calculate the width multiplier (snap to increments)
+        const multiplier = Math.max(1, Math.round(newWidth / baseWidth));
+        const snappedWidth = multiplier * baseWidth;
+
+        // Limit to reasonable range (1x to 6x)
+        const limitedMultiplier = Math.min(6, multiplier);
+        const finalWidth = limitedMultiplier * baseWidth;
+
+        // Update card width
+        card.style.width = `${finalWidth}px`;
+    }
+
+    handleResizeEnd = (e) => {
+        if (!this.resizing) return;
+
+        // Handle graph resize
+        if (this.resizing.isGraph) {
+            const { graphId, card } = this.resizing;
+
+            // Calculate final multiplier from grid column span
+            const gridColumn = card.style.gridColumn;
+            const multiplier = gridColumn ? parseInt(gridColumn.replace('span ', '')) : 1;
+
+            // Update portfolioGraphs with new width
+            const graphIndex = this.portfolioGraphs.findIndex(g => {
+                const id = typeof g === 'string' ? g : g.id;
+                return id === graphId;
+            });
+
+            if (graphIndex !== -1) {
+                const currentEntry = this.portfolioGraphs[graphIndex];
+                const id = typeof currentEntry === 'string' ? currentEntry : currentEntry.id;
+                this.portfolioGraphs[graphIndex] = { id, width: multiplier };
+                this.savePortfolioGraphs();
+
+                // Update card's data-width attribute
+                card.dataset.width = multiplier;
+            }
+
+            // Clean up
+            card.classList.remove('resizing');
+            document.body.style.cursor = '';
+            document.body.style.userSelect = '';
+
+            document.removeEventListener('mousemove', this.handleResizeMove);
+            document.removeEventListener('mouseup', this.handleResizeEnd);
+
+            this.resizing = null;
+            return;
+        }
+
+        // Handle stock card resize
+        const { symbol, card, baseWidth } = this.resizing;
+
+        // Calculate final multiplier
+        const finalWidth = parseInt(card.style.width);
+        const multiplier = Math.round(finalWidth / baseWidth);
+
+        // Update stockList with new width
+        const entryIndex = this.stockList.findIndex(entry => {
+            const parsed = this.parseStockEntry(entry);
+            return parsed.symbol === symbol;
+        });
+
+        if (entryIndex !== -1) {
+            const newEntry = multiplier > 1 ? `${symbol}:${multiplier}` : symbol;
+            this.stockList[entryIndex] = newEntry;
+            this.saveStockList();
+
+            // Update card's data-width attribute
+            card.dataset.width = multiplier;
+        }
+
+        // Clean up
+        card.classList.remove('resizing');
+        card.draggable = true;
+        document.body.style.cursor = '';
+        document.body.style.userSelect = '';
+
+        document.removeEventListener('mousemove', this.handleResizeMove);
+        document.removeEventListener('mouseup', this.handleResizeEnd);
+
+        this.resizing = null;
+
+        // Update divider widths after resize
+        requestAnimationFrame(() => {
+            this.updateAllDividerWidths();
         });
     }
 

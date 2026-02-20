@@ -34,6 +34,10 @@
                             <span class="indicator-label">T</span>
                             <span class="indicator-check hidden">✓</span>
                         </div>
+                        <div id="categoriesIndicator" class="data-indicator" title="Categories data">
+                            <span class="indicator-label">C</span>
+                            <span class="indicator-check hidden">✓</span>
+                        </div>
                         <button id="toggleValuesBtn" class="toggle-values-btn" title="Toggle dollar values visibility">
                             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                                 <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
@@ -50,8 +54,8 @@
                     <input
                         type="text"
                         id="stockInput"
-                        placeholder="Add symbol (e.g. AAPL:2 or --)..."
-                        maxlength="15"
+                        placeholder="Add symbol (e.g. AAPL:2 or --Title)..."
+                        maxlength="30"
                     >
                     <button id="addStockBtn">Add</button>
                 </div>
@@ -140,6 +144,13 @@
                             <small>History</small>
                         </span>
                     </label>
+                    <label class="upload-type-option">
+                        <input type="radio" name="uploadType" value="categories">
+                        <span class="upload-type-label">
+                            <strong>Categories</strong>
+                            <small>Classification</small>
+                        </span>
+                    </label>
                 </div>
                 <div class="upload-area">
                     <input type="file" id="fileInput" accept=".csv" hidden>
@@ -156,6 +167,6 @@
     </div>
 
     <script src="api.js?v=9"></script>
-    <script src="app.js?v=24"></script>
+    <script src="app.js?v=25"></script>
 </body>
 </html>

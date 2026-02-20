@@ -326,13 +326,66 @@ h1 {
     font-size: 11px;
 }
 
+.graph-heading {
+    padding: 6px 12px 4px 12px;
+    font-size: 10px;
+    font-weight: 700;
+    color: #888;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    background: #1a1a1a;
+    border-bottom: 1px solid #2a2a2a;
+}
+
+.graph-heading:not(:first-child) {
+    margin-top: 4px;
+}
+
+/* Portfolio View Grid */
+#portfolioView {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 20px;
+    padding: 20px;
+}
+
+#portfolioView.hidden {
+    display: none !important;
+}
+
+#portfolioView .empty-state {
+    grid-column: 1 / -1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
 /* Portfolio Graph Cards */
 .portfolio-graph-card {
     background: #242424;
     border: 1px solid #333;
     border-radius: 4px;
-    margin: 20px;
     overflow: hidden;
+    position: relative;
+    transition: background 0.3s, opacity 0.3s;
+}
+
+.portfolio-graph-card:hover {
+    background: #282828;
+}
+
+.portfolio-graph-card.resizing {
+    transition: none;
+    background: #2a2a2a;
+}
+
+.portfolio-graph-card.dragging {
+    opacity: 0.4;
+}
+
+.portfolio-graph-card.drag-over {
+    border-left: 3px solid #667eea;
+    background: #2a2a2a;
 }
 
 .graph-card-header {
@@ -341,6 +394,19 @@ h1 {
     align-items: center;
     padding: 16px 20px;
     border-bottom: 1px solid #333;
+    cursor: move;
+}
+
+.graph-drag-handle {
+    color: #555;
+    font-size: 12px;
+    cursor: grab;
+    user-select: none;
+    margin-right: 8px;
+}
+
+.graph-drag-handle:active {
+    cursor: grabbing;
 }
 
 .graph-card-header h3 {
@@ -348,6 +414,7 @@ h1 {
     font-weight: 600;
     color: #aaa;
     margin: 0;
+    flex: 1;
 }
 
 .remove-graph-btn {
@@ -478,6 +545,10 @@ button:active {
     box-sizing: border-box;
 }
 
+.stock-divider.has-title {
+    height: 50px;
+}
+
 .stock-divider:hover {
     background: #2a2a2a;
 }
@@ -502,6 +573,38 @@ button:active {
 .stock-divider:hover .divider-line {
     background: #555;
     height: 3px;
+}
+
+.stock-divider.has-title .divider-line {
+    height: 3px;
+    background: #555;
+}
+
+.stock-divider.has-title:hover .divider-line {
+    background: #666;
+    height: 4px;
+}
+
+.divider-content {
+    width: 100%;
+    display: flex;
+    align-items: center;
+    gap: 20px;
+    padding: 0 20px;
+}
+
+.divider-title {
+    color: #888;
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0.5px;
+    text-transform: uppercase;
+    white-space: nowrap;
+    flex-shrink: 0;
+}
+
+.stock-divider:hover .divider-title {
+    color: #aaa;
 }
 
 .divider-remove-btn {
@@ -545,6 +648,11 @@ button:active {
     flex-shrink: 0;
     cursor: move;
     box-sizing: border-box;
+}
+
+.stock-card.resizing {
+    transition: none;
+    background: #2a2a2a;
 }
 
 .stock-card:hover {
@@ -739,6 +847,71 @@ button:active {
     font-size: 10px;
     opacity: 0.7;
     font-weight: 500;
+}
+
+/* Resize Handle */
+.resize-handle {
+    position: absolute;
+    top: 0;
+    right: 0;
+    width: 10px;
+    height: 100%;
+    cursor: ew-resize;
+    opacity: 0;
+    transition: opacity 0.2s;
+    background: linear-gradient(to right, transparent 55%, #667eea);
+    z-index: 10;
+}
+
+.stock-card:hover .resize-handle {
+    opacity: 0.3;
+}
+
+.resize-handle:hover {
+    opacity: 0.6 !important;
+}
+
+.stock-card.resizing .resize-handle {
+    opacity: 0.8 !important;
+}
+
+/* Graph Resize Handle */
+.graph-resize-handle {
+    position: absolute;
+    top: 0;
+    right: 0;
+    width: 10px;
+    height: 100%;
+    cursor: ew-resize;
+    opacity: 0;
+    transition: opacity 0.2s;
+    background: linear-gradient(to right, transparent 55%, #667eea);
+    z-index: 10;
+}
+
+.portfolio-graph-card:hover .graph-resize-handle {
+    opacity: 0.3;
+}
+
+.graph-resize-handle:hover {
+    opacity: 0.6 !important;
+}
+
+.portfolio-graph-card.resizing .graph-resize-handle {
+    opacity: 0.8 !important;
+}
+
+/* Responsive portfolio grid */
+@media (max-width: 1200px) {
+    #portfolioView {
+        grid-template-columns: repeat(2, 1fr);
+    }
+}
+
+@media (max-width: 768px) {
+    #portfolioView {
+        grid-template-columns: repeat(1, 1fr);
+    }
 }
 
 /* Chart clickable indicator */
