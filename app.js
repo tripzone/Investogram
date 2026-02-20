@@ -3,12 +3,24 @@
 class StockDashboard {
     constructor() {
         this.stockList = this.loadStockList();
+        this.portfolioGraphs = this.loadPortfolioGraphs();
         this.charts = new Map();
+        this.portfolioCharts = new Map();
         this.candlestickChart = null;
         this.currentModalSymbol = null;
         this.currentModalRange = null;
         this.currentModalInterval = null;
         this.maVisibility = {}; // Store moving average visibility state
+        this.selectedFile = null;
+        this.selectedGraph = null;
+        this.showValues = this.loadShowValuesPreference();
+        this.availableGraphs = [
+            {
+                id: 'asset-allocation',
+                title: 'Asset Allocation',
+                description: 'Portfolio breakdown by symbol'
+            }
+        ];
         this.init();
     }
 
@@ -16,6 +28,11 @@ class StockDashboard {
         // Yahoo Finance doesn't need API key, so skip prompt
         // Set up event listeners
         this.setupEventListeners();
+        this.setupTabs();
+        this.setupUploadModal();
+        this.setupGraphSelector();
+        this.setupValuesToggle();
+        this.updateDataIndicators();
 
         // Load initial stocks
         if (this.stockList.length === 0) {
@@ -25,6 +42,689 @@ class StockDashboard {
         }
 
         this.renderAllStocks();
+        this.renderPortfolioGraphs();
+
+        // Update divider widths on window resize
+        window.addEventListener('resize', () => {
+            this.updateAllDividerWidths();
+        });
+    }
+
+    setupTabs() {
+        const stocksTab = document.getElementById('stocksTab');
+        const portfolioTab = document.getElementById('portfolioTab');
+        const stocksView = document.getElementById('stocksView');
+        const portfolioView = document.getElementById('portfolioView');
+        const stockControls = document.querySelector('.stock-controls');
+        const portfolioControls = document.querySelector('.portfolio-controls');
+        const collapseAllBtn = document.getElementById('collapseAllBtn');
+        const expandAllBtn = document.getElementById('expandAllBtn');
+        const uploadControls = document.querySelector('.upload-controls');
+
+        stocksTab.addEventListener('click', () => {
+            // Switch to stocks view
+            stocksTab.classList.add('active');
+            portfolioTab.classList.remove('active');
+            stocksView.classList.remove('hidden');
+            portfolioView.classList.add('hidden');
+
+            // Show stock-specific controls
+            stockControls.classList.remove('hidden');
+            portfolioControls.classList.add('hidden');
+            collapseAllBtn.style.display = 'flex';
+            expandAllBtn.style.display = 'flex';
+
+            // Hide upload controls
+            uploadControls.classList.remove('visible');
+        });
+
+        portfolioTab.addEventListener('click', () => {
+            // Switch to portfolio view
+            portfolioTab.classList.add('active');
+            stocksTab.classList.remove('active');
+            portfolioView.classList.remove('hidden');
+            stocksView.classList.add('hidden');
+
+            // Hide stock-specific controls
+            stockControls.classList.add('hidden');
+            portfolioControls.classList.remove('hidden');
+            collapseAllBtn.style.display = 'none';
+            expandAllBtn.style.display = 'none';
+
+            // Show upload controls
+            uploadControls.classList.add('visible');
+        });
+    }
+
+    setupUploadModal() {
+        const uploadBtn = document.getElementById('uploadBtn');
+        const uploadModal = document.getElementById('uploadModal');
+        const uploadModalCloseBtn = document.getElementById('uploadModalCloseBtn');
+        const cancelUploadBtn = document.getElementById('cancelUploadBtn');
+        const selectFileBtn = document.getElementById('selectFileBtn');
+        const fileInput = document.getElementById('fileInput');
+        const confirmUploadBtn = document.getElementById('confirmUploadBtn');
+
+        // Open upload modal
+        uploadBtn.addEventListener('click', () => {
+            this.openUploadModal();
+        });
+
+        // Close modal handlers
+        uploadModalCloseBtn.addEventListener('click', () => {
+            this.closeUploadModal();
+        });
+
+        cancelUploadBtn.addEventListener('click', () => {
+            this.closeUploadModal();
+        });
+
+        uploadModal.addEventListener('click', (e) => {
+            if (e.target.id === 'uploadModal') {
+                this.closeUploadModal();
+            }
+        });
+
+        // File selection
+        selectFileBtn.addEventListener('click', () => {
+            fileInput.click();
+        });
+
+        fileInput.addEventListener('change', (e) => {
+            this.handleFileSelect(e.target.files[0]);
+        });
+
+        // Confirm upload
+        confirmUploadBtn.addEventListener('click', () => {
+            this.handleUpload();
+        });
+    }
+
+    openUploadModal() {
+        const uploadModal = document.getElementById('uploadModal');
+        uploadModal.classList.remove('hidden');
+        this.resetUploadModal();
+    }
+
+    closeUploadModal() {
+        const uploadModal = document.getElementById('uploadModal');
+        uploadModal.classList.add('hidden');
+        this.resetUploadModal();
+    }
+
+    resetUploadModal() {
+        const fileInput = document.getElementById('fileInput');
+        const fileInfo = document.getElementById('fileInfo');
+        const uploadError = document.getElementById('uploadError');
+        const confirmUploadBtn = document.getElementById('confirmUploadBtn');
+
+        fileInput.value = '';
+        fileInfo.classList.add('hidden');
+        fileInfo.textContent = '';
+        uploadError.classList.add('hidden');
+        uploadError.textContent = '';
+        confirmUploadBtn.disabled = true;
+        this.selectedFile = null;
+    }
+
+    handleFileSelect(file) {
+        const fileInfo = document.getElementById('fileInfo');
+        const uploadError = document.getElementById('uploadError');
+        const confirmUploadBtn = document.getElementById('confirmUploadBtn');
+
+        uploadError.classList.add('hidden');
+
+        if (!file) {
+            this.selectedFile = null;
+            fileInfo.classList.add('hidden');
+            confirmUploadBtn.disabled = true;
+            return;
+        }
+
+        if (!file.name.endsWith('.csv')) {
+            uploadError.textContent = 'Please select a CSV file';
+            uploadError.classList.remove('hidden');
+            this.selectedFile = null;
+            fileInfo.classList.add('hidden');
+            confirmUploadBtn.disabled = true;
+            return;
+        }
+
+        this.selectedFile = file;
+        fileInfo.textContent = `Selected: ${file.name}`;
+        fileInfo.classList.remove('hidden');
+        confirmUploadBtn.disabled = false;
+    }
+
+    async handleUpload() {
+        if (!this.selectedFile) return;
+
+        const uploadType = document.querySelector('input[name="uploadType"]:checked').value;
+        const uploadError = document.getElementById('uploadError');
+        const confirmUploadBtn = document.getElementById('confirmUploadBtn');
+
+        try {
+            confirmUploadBtn.disabled = true;
+            confirmUploadBtn.textContent = 'Uploading...';
+
+            const text = await this.selectedFile.text();
+            const data = this.parseCSV(text, uploadType);
+
+            // Validate data
+            if (!data || data.length === 0) {
+                throw new Error('No valid data found in file');
+            }
+
+            // Store in localStorage
+            this.savePortfolioData(uploadType, data);
+
+            // Update indicators
+            this.updateDataIndicators();
+
+            // Success
+            this.closeUploadModal();
+            alert(`Successfully uploaded ${data.length} ${uploadType} records`);
+
+        } catch (error) {
+            console.error('Upload error:', error);
+            uploadError.textContent = error.message || 'Error processing file';
+            uploadError.classList.remove('hidden');
+        } finally {
+            confirmUploadBtn.disabled = false;
+            confirmUploadBtn.textContent = 'Upload';
+        }
+    }
+
+    parseCSV(text, type) {
+        const lines = text.trim().split('\n');
+        if (lines.length < 2) {
+            throw new Error('File is empty or has no data rows');
+        }
+
+        const headers = lines[0].split(',').map(h => h.trim());
+        const data = [];
+
+        // Validate headers based on type
+        if (type === 'positions') {
+            const requiredHeaders = ['symbol', 'quantity', 'average_entry_price', 'total_cost', 'currency'];
+            const hasAllHeaders = requiredHeaders.every(h => headers.includes(h));
+            if (!hasAllHeaders) {
+                throw new Error('Invalid positions file format. Expected headers: ' + requiredHeaders.join(', '));
+            }
+        } else if (type === 'trades') {
+            const requiredHeaders = ['transaction_date', 'symbol', 'type', 'currency'];
+            const hasAllHeaders = requiredHeaders.every(h => headers.includes(h));
+            if (!hasAllHeaders) {
+                throw new Error('Invalid trades file format. Expected headers: ' + requiredHeaders.join(', '));
+            }
+        }
+
+        // Parse data rows
+        for (let i = 1; i < lines.length; i++) {
+            const line = lines[i].trim();
+            if (!line) continue;
+
+            const values = line.split(',').map(v => v.trim());
+            const row = {};
+
+            headers.forEach((header, index) => {
+                row[header] = values[index] || '';
+            });
+
+            // Basic validation
+            if (!row.symbol) continue;
+
+            data.push(row);
+        }
+
+        return data;
+    }
+
+    savePortfolioData(type, data) {
+        const key = type === 'positions' ? 'portfolio_positions' : 'portfolio_trades';
+        localStorage.setItem(key, JSON.stringify(data));
+        localStorage.setItem(key + '_uploaded_at', new Date().toISOString());
+    }
+
+    loadPortfolioData(type) {
+        const key = type === 'positions' ? 'portfolio_positions' : 'portfolio_trades';
+        const saved = localStorage.getItem(key);
+        return saved ? JSON.parse(saved) : null;
+    }
+
+    updateDataIndicators() {
+        const positionsIndicator = document.getElementById('positionsIndicator');
+        const tradesIndicator = document.getElementById('tradesIndicator');
+
+        // Check if positions data exists
+        const positionsData = this.loadPortfolioData('positions');
+        const positionsCheck = positionsIndicator.querySelector('.indicator-check');
+        if (positionsData && positionsData.length > 0) {
+            positionsCheck.classList.remove('hidden');
+        } else {
+            positionsCheck.classList.add('hidden');
+        }
+
+        // Check if trades data exists
+        const tradesData = this.loadPortfolioData('trades');
+        const tradesCheck = tradesIndicator.querySelector('.indicator-check');
+        if (tradesData && tradesData.length > 0) {
+            tradesCheck.classList.remove('hidden');
+        } else {
+            tradesCheck.classList.add('hidden');
+        }
+    }
+
+    setupValuesToggle() {
+        const toggleBtn = document.getElementById('toggleValuesBtn');
+
+        // Set initial state
+        if (this.showValues) {
+            toggleBtn.classList.add('active');
+        }
+
+        // Toggle on click
+        toggleBtn.addEventListener('click', () => {
+            this.showValues = !this.showValues;
+            this.saveShowValuesPreference(this.showValues);
+
+            if (this.showValues) {
+                toggleBtn.classList.add('active');
+            } else {
+                toggleBtn.classList.remove('active');
+            }
+
+            // Re-render portfolio graphs to apply changes
+            this.renderPortfolioGraphs();
+        });
+    }
+
+    loadShowValuesPreference() {
+        const saved = localStorage.getItem('show_values');
+        return saved === 'true'; // Default to false (hidden)
+    }
+
+    saveShowValuesPreference(value) {
+        localStorage.setItem('show_values', value.toString());
+    }
+
+    setupGraphSelector() {
+        const graphInput = document.getElementById('graphInput');
+        const graphDropdown = document.getElementById('graphDropdown');
+        const graphList = document.getElementById('graphList');
+        const addGraphBtn = document.getElementById('addGraphBtn');
+
+        // Show dropdown on focus
+        graphInput.addEventListener('focus', () => {
+            this.showGraphDropdown();
+        });
+
+        // Filter graphs as user types
+        graphInput.addEventListener('input', (e) => {
+            const query = e.target.value.toLowerCase();
+            this.filterGraphs(query);
+        });
+
+        // Hide dropdown when clicking outside
+        document.addEventListener('click', (e) => {
+            if (!e.target.closest('.graph-selector-wrapper')) {
+                graphDropdown.classList.add('hidden');
+            }
+        });
+
+        // Add graph button
+        addGraphBtn.addEventListener('click', () => {
+            this.addGraph();
+        });
+
+        // Enter key to add graph
+        graphInput.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter' && this.selectedGraph) {
+                this.addGraph();
+            }
+        });
+    }
+
+    showGraphDropdown() {
+        const graphDropdown = document.getElementById('graphDropdown');
+        graphDropdown.classList.remove('hidden');
+        this.renderGraphOptions(this.availableGraphs);
+    }
+
+    filterGraphs(query) {
+        if (!query) {
+            this.renderGraphOptions(this.availableGraphs);
+            return;
+        }
+
+        const filtered = this.availableGraphs.filter(graph => {
+            return graph.title.toLowerCase().includes(query) ||
+                   graph.description.toLowerCase().includes(query);
+        });
+
+        this.renderGraphOptions(filtered);
+    }
+
+    renderGraphOptions(graphs) {
+        const graphList = document.getElementById('graphList');
+        graphList.innerHTML = '';
+
+        if (graphs.length === 0) {
+            graphList.innerHTML = '<div class="graph-list-empty">No graphs found</div>';
+            return;
+        }
+
+        graphs.forEach(graph => {
+            const option = document.createElement('div');
+            option.className = 'graph-option';
+            option.dataset.graphId = graph.id;
+
+            // Check if already added
+            const alreadyAdded = this.portfolioGraphs.includes(graph.id);
+            if (alreadyAdded) {
+                option.style.opacity = '0.5';
+                option.style.cursor = 'default';
+            }
+
+            option.innerHTML = `
+                <div class="graph-option-title">${graph.title}${alreadyAdded ? ' (added)' : ''}</div>
+                <div class="graph-option-description">${graph.description}</div>
+            `;
+
+            if (!alreadyAdded) {
+                option.addEventListener('click', () => {
+                    this.selectGraph(graph);
+                });
+            }
+
+            graphList.appendChild(option);
+        });
+    }
+
+    selectGraph(graph) {
+        const graphInput = document.getElementById('graphInput');
+        const addGraphBtn = document.getElementById('addGraphBtn');
+        const graphOptions = document.querySelectorAll('.graph-option');
+
+        // Update selected state
+        graphOptions.forEach(opt => opt.classList.remove('selected'));
+        const selectedOption = document.querySelector(`[data-graph-id="${graph.id}"]`);
+        if (selectedOption) {
+            selectedOption.classList.add('selected');
+        }
+
+        // Update input
+        graphInput.value = graph.title;
+        this.selectedGraph = graph;
+
+        // Enable add button
+        addGraphBtn.disabled = false;
+    }
+
+    addGraph() {
+        if (!this.selectedGraph) return;
+
+        // Check if already added
+        if (this.portfolioGraphs.includes(this.selectedGraph.id)) {
+            alert('Graph already added');
+            return;
+        }
+
+        // Add to list
+        this.portfolioGraphs.push(this.selectedGraph.id);
+        this.savePortfolioGraphs();
+
+        // Clear selection
+        const graphInput = document.getElementById('graphInput');
+        const graphDropdown = document.getElementById('graphDropdown');
+        const addGraphBtn = document.getElementById('addGraphBtn');
+
+        graphInput.value = '';
+        graphDropdown.classList.add('hidden');
+        addGraphBtn.disabled = true;
+        this.selectedGraph = null;
+
+        // Re-render portfolio view
+        this.renderPortfolioGraphs();
+    }
+
+    loadPortfolioGraphs() {
+        const saved = localStorage.getItem('portfolio_graphs');
+        return saved ? JSON.parse(saved) : [];
+    }
+
+    savePortfolioGraphs() {
+        localStorage.setItem('portfolio_graphs', JSON.stringify(this.portfolioGraphs));
+    }
+
+    renderPortfolioGraphs() {
+        const portfolioView = document.getElementById('portfolioView');
+
+        // Destroy existing charts
+        this.portfolioCharts.forEach(chart => chart.destroy());
+        this.portfolioCharts.clear();
+
+        if (this.portfolioGraphs.length === 0) {
+            portfolioView.innerHTML = '<div class="empty-state"><p>No graphs added yet. Add your first graph above!</p></div>';
+            return;
+        }
+
+        portfolioView.innerHTML = '';
+
+        this.portfolioGraphs.forEach((graphId, index) => {
+            const graphDef = this.availableGraphs.find(g => g.id === graphId);
+            if (!graphDef) return;
+
+            const graphCard = document.createElement('div');
+            graphCard.className = 'portfolio-graph-card';
+            const canvasId = `portfolio-chart-${index}`;
+
+            graphCard.innerHTML = `
+                <div class="graph-card-header">
+                    <h3>${graphDef.title}</h3>
+                    <button class="remove-graph-btn" onclick="dashboard.removeGraph('${graphId}')">×</button>
+                </div>
+                <div class="graph-card-body">
+                    <canvas id="${canvasId}"></canvas>
+                </div>
+            `;
+
+            portfolioView.appendChild(graphCard);
+
+            // Render specific graph type
+            setTimeout(() => {
+                this.renderGraph(graphId, canvasId);
+            }, 0);
+        });
+    }
+
+    renderGraph(graphId, canvasId) {
+        switch(graphId) {
+            case 'asset-allocation':
+                this.renderAssetAllocation(canvasId);
+                break;
+            default:
+                // Show placeholder for unimplemented graphs
+                const canvas = document.getElementById(canvasId);
+                if (canvas) {
+                    const ctx = canvas.getContext('2d');
+                    ctx.fillStyle = '#666';
+                    ctx.font = '13px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto';
+                    ctx.textAlign = 'center';
+                    ctx.fillText('Graph visualization coming soon', canvas.width / 2, canvas.height / 2);
+                }
+                break;
+        }
+    }
+
+    renderAssetAllocation(canvasId) {
+        const positionsData = this.loadPortfolioData('positions');
+        const canvas = document.getElementById(canvasId);
+
+        if (!canvas) return;
+
+        if (!positionsData || positionsData.length === 0) {
+            const ctx = canvas.getContext('2d');
+            ctx.fillStyle = '#666';
+            ctx.font = '13px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto';
+            ctx.textAlign = 'center';
+            ctx.fillText('No positions data available. Upload positions data to see this chart.', canvas.width / 2, canvas.height / 2);
+            return;
+        }
+
+        // Calculate total portfolio value
+        const totalValue = positionsData.reduce((sum, pos) => {
+            return sum + parseFloat(pos.total_cost || 0);
+        }, 0);
+
+        // Sort by total_cost descending
+        const sortedPositions = [...positionsData].sort((a, b) => {
+            return parseFloat(b.total_cost || 0) - parseFloat(a.total_cost || 0);
+        });
+
+        // Prepare datasets - one dataset per asset for stacked bar
+        const datasets = [];
+        const colors = [];
+
+        sortedPositions.forEach((pos, index) => {
+            const value = parseFloat(pos.total_cost || 0);
+            const percentage = (value / totalValue * 100).toFixed(2);
+
+            // Generate colors
+            const hue = (index * 360 / sortedPositions.length) % 360;
+            const color = `hsl(${hue}, 60%, 55%)`;
+            colors.push(color);
+
+            datasets.push({
+                label: pos.symbol,
+                data: [percentage],
+                backgroundColor: color,
+                borderColor: color.replace('55%', '45%'),
+                borderWidth: 1,
+                percentage: percentage,
+                value: value,
+                currency: pos.currency || 'USD'
+            });
+        });
+
+        const ctx = canvas.getContext('2d');
+        const showValues = this.showValues;
+
+        const chart = new Chart(ctx, {
+            type: 'bar',
+            data: {
+                labels: ['Portfolio'],
+                datasets: datasets
+            },
+            plugins: [ChartDataLabels],
+            options: {
+                indexAxis: 'y',
+                responsive: true,
+                maintainAspectRatio: false,
+                animation: false,
+                plugins: {
+                    legend: {
+                        display: false
+                    },
+                    datalabels: {
+                        color: 'rgba(255, 255, 255, 0.9)',
+                        font: {
+                            size: 11,
+                            weight: 600
+                        },
+                        rotation: -90,
+                        align: 'center',
+                        anchor: 'center',
+                        clip: true,
+                        formatter: function(value, context) {
+                            // Get the symbol and remove anything after a dot
+                            const symbol = context.dataset.label;
+                            const cleanSymbol = symbol.split('.')[0];
+                            return cleanSymbol;
+                        },
+                        display: function(context) {
+                            // Calculate if the label fits
+                            const dataset = context.dataset;
+                            const percentage = parseFloat(dataset.percentage);
+
+                            // Get the chart width
+                            const chartWidth = context.chart.width;
+
+                            // Calculate the segment width (percentage of chart width)
+                            const segmentWidth = (percentage / 100) * chartWidth;
+
+                            // Get clean symbol (before any dot)
+                            const cleanSymbol = dataset.label.split('.')[0];
+
+                            // Estimate label height when rotated (becomes width)
+                            // Each character is roughly 6.5px wide when rotated
+                            const labelWidth = cleanSymbol.length * 6.5;
+
+                            // Only show if label fits with minimal padding
+                            return segmentWidth > labelWidth + 4;
+                        }
+                    },
+                    tooltip: {
+                        backgroundColor: '#1a1a1a',
+                        borderColor: '#333',
+                        borderWidth: 1,
+                        titleColor: '#fff',
+                        bodyColor: '#aaa',
+                        callbacks: {
+                            title: function(context) {
+                                return context[0].dataset.label;
+                            },
+                            label: function(context) {
+                                const dataset = context.dataset;
+                                const lines = [];
+
+                                if (showValues) {
+                                    lines.push(`Value: ${dataset.currency} ${dataset.value.toFixed(2)}`);
+                                }
+                                lines.push(`Allocation: ${dataset.percentage}%`);
+
+                                return lines;
+                            }
+                        }
+                    }
+                },
+                scales: {
+                    x: {
+                        stacked: true,
+                        max: 100,
+                        grid: {
+                            color: '#2a2a2a',
+                            drawBorder: false
+                        },
+                        ticks: {
+                            color: '#666',
+                            callback: function(value) {
+                                return value + '%';
+                            }
+                        }
+                    },
+                    y: {
+                        stacked: true,
+                        display: false,
+                        grid: {
+                            display: false,
+                            drawBorder: false
+                        }
+                    }
+                }
+            }
+        });
+
+        // Store chart instance
+        this.portfolioCharts.set(canvasId, chart);
+    }
+
+    removeGraph(graphId) {
+        if (!confirm('Remove this graph?')) return;
+
+        this.portfolioGraphs = this.portfolioGraphs.filter(id => id !== graphId);
+        this.savePortfolioGraphs();
+        this.renderPortfolioGraphs();
     }
 
     setupEventListeners() {
@@ -190,12 +890,23 @@ class StockDashboard {
 
     async addStock() {
         const input = document.getElementById('stockInput');
-        let inputValue = input.value.trim().toUpperCase();
+        let inputValue = input.value.trim();
 
         if (!inputValue) {
             alert('Please enter a stock symbol');
             return;
         }
+
+        // Check if user wants to add a divider
+        if (inputValue === '--') {
+            this.stockList.push('--');
+            this.saveStockList();
+            this.renderDivider();
+            input.value = '';
+            return;
+        }
+
+        inputValue = inputValue.toUpperCase();
 
         // Parse symbol and optional width (e.g., "AAPL:2" or "AAPL")
         let symbol, width = 1;
@@ -240,11 +951,14 @@ class StockDashboard {
     }
 
     parseStockEntry(entry) {
+        if (entry === '--') {
+            return { symbol: '--', width: 1, isDivider: true };
+        }
         if (entry.includes(':')) {
             const parts = entry.split(':');
-            return { symbol: parts[0], width: parseInt(parts[1]) || 1 };
+            return { symbol: parts[0], width: parseInt(parts[1]) || 1, isDivider: false };
         }
-        return { symbol: entry, width: 1 };
+        return { symbol: entry, width: 1, isDivider: false };
     }
 
     removeStock(symbol) {
@@ -282,11 +996,23 @@ class StockDashboard {
             grid.classList.remove('many-stocks');
         }
 
-        this.stockList.forEach(entry => {
-            this.renderStock(entry);
+        this.stockList.forEach((entry, index) => {
+            const parsed = this.parseStockEntry(entry);
+            if (parsed.isDivider) {
+                this.renderDivider(index);
+            } else {
+                this.renderStock(entry);
+            }
         });
 
         this.updateEmptyState();
+
+        // Update divider widths after all stocks are rendered and layout is calculated
+        requestAnimationFrame(() => {
+            requestAnimationFrame(() => {
+                this.updateAllDividerWidths();
+            });
+        });
     }
 
     refreshAllStocks() {
@@ -314,6 +1040,82 @@ class StockDashboard {
         } catch (error) {
             this.showCardError(symbol, error.message);
         }
+    }
+
+    renderDivider(index) {
+        const grid = document.getElementById('stockGrid');
+        const divider = document.createElement('div');
+        divider.className = 'stock-divider';
+        divider.draggable = true;
+        divider.dataset.symbol = '--';
+        divider.dataset.index = index;
+
+        divider.innerHTML = `
+            <div class="divider-line"></div>
+            <button class="divider-remove-btn">×</button>
+        `;
+
+        // Add remove button click handler
+        const removeBtn = divider.querySelector('.divider-remove-btn');
+        removeBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            this.removeDivider(divider);
+        });
+
+        // Add drag event listeners
+        divider.addEventListener('dragstart', (e) => this.handleDragStart(e));
+        divider.addEventListener('dragover', (e) => this.handleDragOver(e));
+        divider.addEventListener('drop', (e) => this.handleDrop(e));
+        divider.addEventListener('dragend', (e) => this.handleDragEnd(e));
+        divider.addEventListener('dragenter', (e) => this.handleDragEnter(e));
+        divider.addEventListener('dragleave', (e) => this.handleDragLeave(e));
+
+        grid.appendChild(divider);
+
+        // Update divider line width to match visible cards
+        this.updateDividerWidth(divider);
+    }
+
+    updateDividerWidth(divider) {
+        const grid = document.getElementById('stockGrid');
+
+        // Get all stock cards (not dividers)
+        const stockCards = Array.from(grid.querySelectorAll('.stock-card'));
+
+        if (stockCards.length === 0) {
+            return;
+        }
+
+        // Get the actual width of a stock card from the DOM
+        const firstCard = stockCards[0];
+        const cardWidth = firstCard.offsetWidth;
+
+        // Calculate how many cards fit in the grid width
+        const gridWidth = grid.offsetWidth;
+        const cardsPerRow = Math.floor(gridWidth / cardWidth);
+
+        // Calculate the effective width to match the last row of cards
+        const effectiveWidth = cardsPerRow * cardWidth;
+
+        // Set the divider container width
+        divider.style.width = `${effectiveWidth}px`;
+    }
+
+    updateAllDividerWidths() {
+        const dividers = document.querySelectorAll('.stock-divider');
+        dividers.forEach(divider => this.updateDividerWidth(divider));
+    }
+
+    removeDivider(dividerElement) {
+        if (!confirm('Remove divider?')) {
+            return;
+        }
+
+        // Find the index of this divider in the stockList
+        const index = parseInt(dividerElement.dataset.index);
+        this.stockList.splice(index, 1);
+        this.saveStockList();
+        this.renderAllStocks();
     }
 
     createStockCard(symbol, width = 1) {
@@ -614,13 +1416,13 @@ class StockDashboard {
     }
 
     handleDragEnter(e) {
-        if (e.target.classList.contains('stock-card')) {
+        if (e.target.classList.contains('stock-card') || e.target.classList.contains('stock-divider')) {
             e.target.classList.add('drag-over');
         }
     }
 
     handleDragLeave(e) {
-        if (e.target.classList.contains('stock-card')) {
+        if (e.target.classList.contains('stock-card') || e.target.classList.contains('stock-divider')) {
             e.target.classList.remove('drag-over');
         }
     }
@@ -630,7 +1432,9 @@ class StockDashboard {
             e.stopPropagation();
         }
 
-        if (this.draggedElement !== e.target && e.target.classList.contains('stock-card')) {
+        const isDraggableTarget = e.target.classList.contains('stock-card') || e.target.classList.contains('stock-divider');
+
+        if (this.draggedElement !== e.target && isDraggableTarget) {
             const grid = document.getElementById('stockGrid');
 
             // Get symbols
@@ -661,6 +1465,9 @@ class StockDashboard {
                 e.target.parentNode.insertBefore(this.draggedElement, e.target);
             }
 
+            // Update data-index attributes for all dividers
+            this.updateDividerIndices();
+
             // Save the new order
             this.saveStockList();
         }
@@ -669,10 +1476,26 @@ class StockDashboard {
         return false;
     }
 
+    updateDividerIndices() {
+        // Update data-index for all dividers to match their position in stockList
+        const dividers = document.querySelectorAll('.stock-divider');
+        let dividerCount = 0;
+
+        this.stockList.forEach((entry, index) => {
+            const parsed = this.parseStockEntry(entry);
+            if (parsed.isDivider) {
+                if (dividers[dividerCount]) {
+                    dividers[dividerCount].dataset.index = index;
+                }
+                dividerCount++;
+            }
+        });
+    }
+
     handleDragEnd(e) {
         e.target.classList.remove('dragging');
-        // Remove drag-over class from all cards
-        document.querySelectorAll('.stock-card').forEach(card => {
+        // Remove drag-over class from all cards and dividers
+        document.querySelectorAll('.stock-card, .stock-divider').forEach(card => {
             card.classList.remove('drag-over');
         });
     }

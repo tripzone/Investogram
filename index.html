@@ -4,8 +4,9 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Stock Dashboard</title>
-    <link rel="stylesheet" href="styles.css?v=8">
+    <link rel="stylesheet" href="styles.css?v=21">
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2.2.0/dist/chartjs-plugin-datalabels.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/luxon@3.4.4/build/global/luxon.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-luxon@1.3.1/dist/chartjs-adapter-luxon.umd.min.js"></script>
     <script src="https://unpkg.com/chartjs-chart-financial@0.2.1/dist/chartjs-chart-financial.js"></script>
@@ -14,30 +15,78 @@
     <div class="container">
         <header>
             <div class="header-left">
-                <h1>Stocks</h1>
+                <div class="tabs">
+                    <button id="stocksTab" class="tab-btn active">Stocks</button>
+                    <button id="portfolioTab" class="tab-btn">Portfolio</button>
+                    <div class="upload-controls">
+                        <button id="uploadBtn" class="upload-icon-btn" title="Upload portfolio data">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                                <polyline points="17 8 12 3 7 8"></polyline>
+                                <line x1="12" y1="3" x2="12" y2="15"></line>
+                            </svg>
+                        </button>
+                        <div id="positionsIndicator" class="data-indicator" title="Positions data">
+                            <span class="indicator-label">P</span>
+                            <span class="indicator-check hidden">✓</span>
+                        </div>
+                        <div id="tradesIndicator" class="data-indicator" title="Trades data">
+                            <span class="indicator-label">T</span>
+                            <span class="indicator-check hidden">✓</span>
+                        </div>
+                        <button id="toggleValuesBtn" class="toggle-values-btn" title="Toggle dollar values visibility">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
+                                <circle cx="12" cy="12" r="3"></circle>
+                            </svg>
+                        </button>
+                    </div>
+                </div>
                 <button id="collapseAllBtn" title="Collapse all cards">◢◣</button>
                 <button id="expandAllBtn" title="Expand all cards">◥◤</button>
             </div>
-            <div class="controls">
+            <div class="controls stock-controls">
                 <div class="add-stock-form">
                     <input
                         type="text"
                         id="stockInput"
-                        placeholder="Add symbol (e.g. AAPL:2)..."
+                        placeholder="Add symbol (e.g. AAPL:2 or --)..."
                         maxlength="15"
                     >
                     <button id="addStockBtn">Add</button>
                 </div>
                 <button id="refreshBtn">Refresh</button>
             </div>
+            <div class="controls portfolio-controls hidden">
+                <div class="add-graph-form">
+                    <div class="graph-selector-wrapper">
+                        <input
+                            type="text"
+                            id="graphInput"
+                            placeholder="Add graph..."
+                            autocomplete="off"
+                        >
+                        <div id="graphDropdown" class="graph-dropdown hidden">
+                            <div id="graphList" class="graph-list"></div>
+                        </div>
+                    </div>
+                    <button id="addGraphBtn" disabled>Add</button>
+                </div>
+            </div>
         </header>
 
-        <div id="stockGrid" class="stock-grid">
-            <!-- Stock cards will be dynamically inserted here -->
+        <div id="stocksView" class="tab-content">
+            <div id="stockGrid" class="stock-grid">
+                <!-- Stock cards will be dynamically inserted here -->
+            </div>
+
+            <div id="emptyState" class="empty-state hidden">
+                <p>No stocks added yet. Add your first stock above!</p>
+            </div>
         </div>
 
-        <div id="emptyState" class="empty-state hidden">
-            <p>No stocks added yet. Add your first stock above!</p>
+        <div id="portfolioView" class="tab-content hidden">
+            <!-- Portfolio graphs will be dynamically inserted here -->
         </div>
     </div>
 
@@ -70,7 +119,43 @@
         </div>
     </div>
 
+    <!-- Upload Modal -->
+    <div id="uploadModal" class="modal hidden">
+        <div class="modal-content upload-modal-content">
+            <button id="uploadModalCloseBtn" class="modal-close-btn-visible">×</button>
+            <h2 class="upload-modal-title">Upload Data</h2>
+            <div class="upload-modal-body">
+                <div class="upload-type-selector">
+                    <label class="upload-type-option">
+                        <input type="radio" name="uploadType" value="positions" checked>
+                        <span class="upload-type-label">
+                            <strong>Positions</strong>
+                            <small>Holdings</small>
+                        </span>
+                    </label>
+                    <label class="upload-type-option">
+                        <input type="radio" name="uploadType" value="trades">
+                        <span class="upload-type-label">
+                            <strong>Trades</strong>
+                            <small>History</small>
+                        </span>
+                    </label>
+                </div>
+                <div class="upload-area">
+                    <input type="file" id="fileInput" accept=".csv" hidden>
+                    <button id="selectFileBtn" class="select-file-btn">Select File</button>
+                    <div id="fileInfo" class="file-info hidden"></div>
+                </div>
+                <div id="uploadError" class="upload-error hidden"></div>
+                <div class="upload-actions">
+                    <button id="cancelUploadBtn" class="cancel-btn">Cancel</button>
+                    <button id="confirmUploadBtn" class="confirm-btn" disabled>Upload</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <script src="api.js?v=9"></script>
-    <script src="app.js?v=9"></script>
+    <script src="app.js?v=24"></script>
 </body>
 </html>
