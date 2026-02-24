@@ -1,4 +1,5 @@
 // Main Application Logic
+// RULE: ALL CHARTS MUST HAVE animation: false - No animations allowed
 
 class StockDashboard {
     constructor() {
@@ -66,6 +67,13 @@ class StockDashboard {
                 cardTitle: 'Asset Allocation: All Assets',
                 description: 'Portfolio breakdown by symbol',
                 heading: 'Asset Allocation'
+            },
+            {
+                id: 'market-activity',
+                title: 'Market Activity',
+                cardTitle: 'Market Activity: Net Trading Volume',
+                description: 'Monthly net purchases (buys - sells)',
+                heading: 'Trading Activity'
             }
         ];
 
@@ -701,10 +709,20 @@ class StockDashboard {
 
             const canvasId = `portfolio-chart-${index}`;
 
+            // Add timeframe buttons for market activity graph
+            const timeframeButtons = graphId === 'market-activity' ? `
+                <div class="timeframe-selector">
+                    <button class="timeframe-btn active" data-timeframe="1y">1Y</button>
+                    <button class="timeframe-btn" data-timeframe="5y">5Y</button>
+                    <button class="timeframe-btn" data-timeframe="all">ALL</button>
+                </div>
+            ` : '';
+
             graphCard.innerHTML = `
                 <div class="graph-card-header">
                     <span class="graph-drag-handle">⋮⋮</span>
                     <h3>${graphDef.cardTitle || graphDef.title}</h3>
+                    ${timeframeButtons}
                     <button class="remove-graph-btn" onclick="dashboard.removeGraph('${graphId}')">×</button>
                 </div>
                 <div class="graph-card-body">
@@ -714,6 +732,23 @@ class StockDashboard {
             `;
 
             portfolioView.appendChild(graphCard);
+
+            // Add timeframe button listeners for market activity
+            if (graphId === 'market-activity') {
+                const timeframeBtns = graphCard.querySelectorAll('.timeframe-btn');
+                timeframeBtns.forEach(btn => {
+                    btn.addEventListener('click', (e) => {
+                        e.stopPropagation();
+                        console.log('[Market Activity] Timeframe button clicked:', btn.dataset.timeframe);
+                        // Update active state
+                        timeframeBtns.forEach(b => b.classList.remove('active'));
+                        btn.classList.add('active');
+                        // Re-render with new timeframe
+                        const timeframe = btn.dataset.timeframe;
+                        this.renderMarketActivity(canvasId, timeframe);
+                    });
+                });
+            }
 
             // Add resize functionality
             const resizeHandle = graphCard.querySelector('.graph-resize-handle');
@@ -746,6 +781,9 @@ class StockDashboard {
             case 'asset-allocation':
                 await this.renderAssetAllocation(canvasId);
                 break;
+            case 'market-activity':
+                await this.renderMarketActivity(canvasId);
+                break;
             default:
                 // Show placeholder for unimplemented graphs
                 const canvas = document.getElementById(canvasId);
@@ -769,6 +807,7 @@ class StockDashboard {
         if (cached && cacheTime) {
             const age = Date.now() - parseInt(cacheTime);
             if (age < 3600000) { // 1 hour
+                this.hideExchangeRateWarning(); // Fresh data available
                 return parseFloat(cached);
             }
         }
@@ -783,13 +822,54 @@ class StockDashboard {
                 // Cache the rate
                 localStorage.setItem(cacheKey, rate.toString());
                 localStorage.setItem(`${cacheKey}_time`, Date.now().toString());
+                this.hideExchangeRateWarning(); // Fresh data available
                 return rate;
             }
         } catch (error) {
             console.error('Error fetching exchange rate:', error);
         }
 
+        // Fallback: Use cached rate even if expired
+        if (cached) {
+            console.warn('Using expired exchange rate from cache');
+            const cachedAge = cacheTime ? Math.floor((Date.now() - parseInt(cacheTime)) / 3600000) : '?';
+            this.showExchangeRateWarning(`Using cached exchange rate (${cachedAge}h old). Unable to fetch latest rates.`);
+            return parseFloat(cached);
+        }
+
+        // No cached data available at all
+        this.showExchangeRateWarning('Unable to fetch exchange rates and no cached data available.');
         return null;
+    }
+
+    showExchangeRateWarning(message) {
+        let banner = document.getElementById('exchangeRateWarning');
+        if (!banner) {
+            banner = document.createElement('div');
+            banner.id = 'exchangeRateWarning';
+            banner.className = 'warning-banner';
+            const container = document.querySelector('.container');
+            const header = document.querySelector('header');
+            if (container && header) {
+                container.insertBefore(banner, header.nextSibling);
+            }
+        }
+        banner.innerHTML = `
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path>
+                <line x1="12" y1="9" x2="12" y2="13"></line>
+                <line x1="12" y1="17" x2="12.01" y2="17"></line>
+            </svg>
+            <span>${message}</span>
+        `;
+        banner.style.display = 'flex';
+    }
+
+    hideExchangeRateWarning() {
+        const banner = document.getElementById('exchangeRateWarning');
+        if (banner) {
+            banner.style.display = 'none';
+        }
     }
 
     async renderAssetAllocation(canvasId) {
@@ -808,15 +888,11 @@ class StockDashboard {
         }
 
         // Get exchange rate USD -> CAD
-        const usdToCad = await this.getExchangeRate('USD', 'CAD');
+        let usdToCad = await this.getExchangeRate('USD', 'CAD');
 
+        // If no exchange rate available, use 1:1 as fallback (warning already shown)
         if (!usdToCad) {
-            const ctx = canvas.getContext('2d');
-            ctx.fillStyle = '#666';
-            ctx.font = '13px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto';
-            ctx.textAlign = 'center';
-            ctx.fillText('Unable to fetch exchange rates. Please try again.', canvas.width / 2, canvas.height / 2);
-            return;
+            usdToCad = 1.0;
         }
 
         // Convert all values to CAD
@@ -1283,6 +1359,307 @@ class StockDashboard {
         this.portfolioCharts.set(canvasId, chart);
     }
 
+    async renderMarketActivity(canvasId, timeframe = '1y') {
+        const tradesData = this.loadPortfolioData('trades');
+        const positionsData = this.loadPortfolioData('positions');
+        const canvas = document.getElementById(canvasId);
+
+        if (!canvas) return;
+
+        // Destroy existing chart if it exists
+        const existingChart = this.portfolioCharts.get(canvasId);
+        if (existingChart) {
+            existingChart.destroy();
+            this.portfolioCharts.delete(canvasId);
+        }
+
+        if (!tradesData || tradesData.length === 0) {
+            const ctx = canvas.getContext('2d');
+            ctx.fillStyle = '#666';
+            ctx.font = '13px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto';
+            ctx.textAlign = 'center';
+            ctx.fillText('No trades data available. Upload trades data to see this chart.', canvas.width / 2, canvas.height / 2);
+            return;
+        }
+
+        // Debug: log first trade to see available fields
+        if (tradesData.length > 0) {
+            console.log('[Market Activity] Sample trade data:', tradesData[0]);
+            console.log('[Market Activity] Available fields:', Object.keys(tradesData[0]));
+        }
+
+        // Get exchange rate USD -> CAD
+        let usdToCad = await this.getExchangeRate('USD', 'CAD');
+
+        // If no exchange rate available, use 1:1 as fallback (warning already shown)
+        if (!usdToCad) {
+            usdToCad = 1.0;
+        }
+
+        // Calculate total portfolio value in CAD for percentage calculations
+        let totalPortfolioValue = 0;
+        if (positionsData && positionsData.length > 0) {
+            totalPortfolioValue = positionsData.reduce((sum, pos) => {
+                const value = parseFloat(pos.total_cost || 0);
+                const valueInCAD = pos.currency === 'USD' ? value * usdToCad : value;
+                return sum + valueInCAD;
+            }, 0);
+        }
+
+        // Generate month range based on timeframe
+        const now = new Date();
+        let monthsToShow = [];
+
+        if (timeframe === 'all') {
+            // Find the earliest trade date
+            let earliestDate = now;
+            tradesData.forEach(trade => {
+                const date = new Date(trade.transaction_date);
+                if (!isNaN(date.getTime()) && date < earliestDate) {
+                    earliestDate = date;
+                }
+            });
+
+            // Generate all months from earliest to now
+            const startDate = new Date(earliestDate.getFullYear(), earliestDate.getMonth(), 1);
+            const endDate = new Date(now.getFullYear(), now.getMonth(), 1);
+            const currentDate = new Date(startDate);
+
+            while (currentDate <= endDate) {
+                const monthKey = `${currentDate.getFullYear()}-${String(currentDate.getMonth() + 1).padStart(2, '0')}`;
+                monthsToShow.push({
+                    key: monthKey,
+                    label: currentDate.toLocaleDateString('en-US', { year: 'numeric', month: 'short' }),
+                    buys: 0,
+                    sells: 0
+                });
+                currentDate.setMonth(currentDate.getMonth() + 1);
+            }
+        } else {
+            // Generate months based on timeframe (1y = 12 months, 5y = 60 months)
+            const monthCount = timeframe === '1y' ? 12 : 60;
+            for (let i = monthCount - 1; i >= 0; i--) {
+                const date = new Date(now.getFullYear(), now.getMonth() - i, 1);
+                const monthKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+                monthsToShow.push({
+                    key: monthKey,
+                    label: date.toLocaleDateString('en-US', { year: 'numeric', month: 'short' }),
+                    buys: 0,
+                    sells: 0
+                });
+            }
+        }
+
+        // Process trades data - group by month
+        let processedCount = 0;
+        let skippedCount = 0;
+        tradesData.forEach((trade, index) => {
+            const type = trade.type?.toLowerCase();
+
+            // Skip dividends (we only want trades)
+            if (type === 'dividend') {
+                skippedCount++;
+                return;
+            }
+
+            const date = new Date(trade.transaction_date);
+            if (isNaN(date.getTime())) {
+                console.log('[Market Activity] Invalid date:', trade.transaction_date, 'in trade:', trade);
+                skippedCount++;
+                return; // Skip invalid dates
+            }
+
+            // Create month key (YYYY-MM)
+            const monthKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+
+            // Find if this month is in our selected timeframe
+            const monthData = monthsToShow.find(m => m.key === monthKey);
+            if (!monthData) {
+                skippedCount++;
+                return; // Skip if not in selected timeframe
+            }
+
+            // Parse amount (try multiple possible field names)
+            let amount = 0;
+            if (trade.net_amount) {
+                amount = parseFloat(trade.net_amount);
+            } else if (trade.amount) {
+                amount = parseFloat(trade.amount);
+            } else if (trade.value) {
+                amount = parseFloat(trade.value);
+            } else if (trade.total) {
+                amount = parseFloat(trade.total);
+            } else if (trade.total_cost) {
+                amount = parseFloat(trade.total_cost);
+            } else if (trade.quantity && trade.price) {
+                amount = parseFloat(trade.quantity) * parseFloat(trade.price);
+            } else if (trade.quantity && trade.average_entry_price) {
+                amount = parseFloat(trade.quantity) * parseFloat(trade.average_entry_price);
+            }
+
+            if (isNaN(amount) || amount === 0) return;
+
+            // Convert to CAD if needed
+            const amountInCAD = trade.currency === 'USD' ? Math.abs(amount) * usdToCad : Math.abs(amount);
+
+            // Determine if buy or sell based on amount sign or type
+            const isBuy = (type === 'buy') || (type === 'trade' && amount > 0) || (type === 'liquidation');
+            const isSell = (type === 'sell') || (type === 'trade' && amount < 0);
+
+            if (isBuy) {
+                monthData.buys += amountInCAD;
+                processedCount++;
+                if (processedCount <= 3) {
+                    console.log('[Market Activity] Processing BUY:', {
+                        date: trade.transaction_date,
+                        monthKey,
+                        symbol: trade.symbol,
+                        amount,
+                        amountInCAD,
+                        monthTotal: monthData.buys
+                    });
+                }
+            } else if (isSell) {
+                monthData.sells += amountInCAD;
+                processedCount++;
+                if (processedCount <= 3) {
+                    console.log('[Market Activity] Processing SELL:', {
+                        date: trade.transaction_date,
+                        monthKey,
+                        symbol: trade.symbol,
+                        amount,
+                        amountInCAD,
+                        monthTotal: monthData.sells
+                    });
+                }
+            }
+        });
+
+        console.log('[Market Activity] Processed', processedCount, 'trades, skipped', skippedCount);
+
+        // Extract labels and net activity
+        const labels = monthsToShow.map(m => m.label);
+        const netActivity = monthsToShow.map(m => m.buys - m.sells);
+
+        // Debug: log processed data
+        console.log('[Market Activity] Timeframe:', timeframe, '- Showing', monthsToShow.length, 'months');
+        console.log('[Market Activity] Processed monthly data:', monthsToShow);
+        console.log('[Market Activity] Net activity values:', netActivity);
+
+        // Determine colors (green for net buys, red for net sells)
+        const backgroundColors = netActivity.map(value => value >= 0 ? 'rgba(0, 200, 5, 0.7)' : 'rgba(255, 69, 58, 0.7)');
+        const borderColors = netActivity.map(value => value >= 0 ? 'rgba(0, 200, 5, 1)' : 'rgba(255, 69, 58, 1)');
+
+        const showValues = this.showValues;
+        const formatCurrency = this.formatCurrency.bind(this);
+        const currentTimeframe = timeframe; // Capture for use in chart options
+
+        // Create chart
+        const chart = new Chart(canvas.getContext('2d'), {
+            type: 'bar',
+            data: {
+                labels: labels,
+                datasets: [{
+                    label: 'Net Trading Activity',
+                    data: netActivity,
+                    backgroundColor: backgroundColors,
+                    borderColor: borderColors,
+                    borderWidth: 1
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                animation: false,
+                plugins: {
+                    legend: {
+                        display: false
+                    },
+                    tooltip: {
+                        backgroundColor: 'rgba(0, 0, 0, 0.9)',
+                        padding: 12,
+                        titleColor: '#fff',
+                        bodyColor: '#fff',
+                        borderColor: '#444',
+                        borderWidth: 1,
+                        callbacks: {
+                            title: function(context) {
+                                return context[0].label;
+                            },
+                            label: function(context) {
+                                const value = context.parsed.y;
+                                const lines = [];
+
+                                if (showValues) {
+                                    lines.push(`Net Activity: ${formatCurrency(Math.abs(value), 'CAD')}`);
+                                    lines.push(value >= 0 ? '(Net Purchases)' : '(Net Sales)');
+                                }
+
+                                // Calculate percentage of portfolio
+                                if (totalPortfolioValue > 0) {
+                                    const percentage = (Math.abs(value) / totalPortfolioValue * 100).toFixed(2);
+                                    lines.push(`${percentage}% of portfolio`);
+                                }
+
+                                return lines;
+                            }
+                        }
+                    }
+                },
+                scales: {
+                    x: {
+                        grid: {
+                            color: '#2a2a2a',
+                            drawBorder: false
+                        },
+                        ticks: {
+                            color: '#999',
+                            maxRotation: 45,
+                            minRotation: 45,
+                            autoSkip: true,
+                            maxTicksLimit: currentTimeframe === 'all' ? 20 : (currentTimeframe === '5y' ? 15 : 12)
+                        }
+                    },
+                    y: {
+                        grid: {
+                            color: '#2a2a2a',
+                            drawBorder: false
+                        },
+                        ticks: {
+                            color: '#999',
+                            callback: function(value) {
+                                // If eye icon is off, don't show dollar values
+                                if (!showValues) {
+                                    return '';
+                                }
+
+                                // Format y-axis labels as currency (abbreviated)
+                                const absValue = Math.abs(value);
+                                const sign = value < 0 ? '-' : '';
+
+                                if (absValue === 0) {
+                                    return '$0';
+                                } else if (absValue >= 1000000) {
+                                    return sign + '$' + (absValue / 1000000).toFixed(1) + 'M';
+                                } else if (absValue >= 1000) {
+                                    return sign + '$' + (absValue / 1000).toFixed(0) + 'K';
+                                } else if (absValue >= 1) {
+                                    return sign + '$' + absValue.toFixed(0);
+                                } else {
+                                    // For very small values, don't show
+                                    return '';
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        });
+
+        // Store chart instance
+        this.portfolioCharts.set(canvasId, chart);
+    }
+
     removeGraph(graphId) {
         if (!confirm('Remove this graph?')) return;
 
@@ -1431,6 +1808,11 @@ class StockDashboard {
         // Refresh button
         document.getElementById('refreshBtn').addEventListener('click', () => {
             this.refreshAllStocks();
+        });
+
+        // Portfolio refresh button
+        document.getElementById('refreshPortfolioBtn').addEventListener('click', () => {
+            this.renderPortfolioGraphs();
         });
 
         // Collapse all button
