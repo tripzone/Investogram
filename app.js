@@ -707,6 +707,7 @@ class StockDashboard {
         const parsed = JSON.parse(saved);
         // Migrate old format (array of strings) to new format (array of objects)
         // Default to width 6 (full width) for better backward compatibility
+        const seen = new Set();
         return parsed.map(item => {
             if (typeof item === 'object' && item.isDivider) {
                 return item; // Pass through divider entries as-is
@@ -715,6 +716,11 @@ class StockDashboard {
                 return { id: item, width: 6 };
             }
             return item;
+        }).filter(item => {
+            if (item.isDivider) return true; // keep dividers
+            if (seen.has(item.id)) return false;
+            seen.add(item.id);
+            return true;
         });
     }
 
@@ -2935,7 +2941,16 @@ class StockDashboard {
 
     loadStockList() {
         const saved = localStorage.getItem('stock_list');
-        return saved ? JSON.parse(saved) : [];
+        if (!saved) return [];
+        const parsed = JSON.parse(saved);
+        const seen = new Set();
+        return parsed.filter(entry => {
+            if (entry.startsWith('--')) return true; // keep dividers
+            const symbol = entry.includes(':') ? entry.split(':')[0] : entry;
+            if (seen.has(symbol)) return false;
+            seen.add(symbol);
+            return true;
+        });
     }
 
     saveStockList() {
