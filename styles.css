@@ -627,6 +627,44 @@ h1 {
     border-color: #667eea;
 }
 
+.allocation-refresh-btn {
+    background: transparent;
+    border: none;
+    color: #555;
+    width: 24px;
+    height: 24px;
+    padding: 0;
+    margin-right: 4px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 50%;
+    transition: color 0.3s;
+    flex-shrink: 0;
+}
+
+.allocation-refresh-btn:hover {
+    color: #aaa;
+}
+
+.allocation-refresh-btn.active {
+    color: #4caf50;
+}
+
+.allocation-refresh-btn.error {
+    color: #f44336;
+}
+
+.allocation-refresh-btn.loading .refresh-icon {
+    animation: spin 0.9s linear infinite;
+}
+
+@keyframes spin {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
+}
+
 .remove-graph-btn {
     background: transparent;
     color: #666;

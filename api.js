@@ -97,6 +97,55 @@ class StockAPI {
         return data;
     }
 
+    // Fetch current prices for a list of portfolio symbols.
+    // Reuses the same 1mo/1d URL that stock cards use — free cache hits for overlapping symbols.
+    // Only queues network requests for symbols not already cached.
+    // Future expansion: extract historical closes from the same cached response for L7D/L28D;
+    // add 4y/1wk (already fetched by stock cards) for L6M/L12M.
+    // Returns Map<symbol, { currentPrice, currency }>
+    async fetchPortfolioCurrentPrices(symbols) {
+        const results = new Map();
+        const toFetch = [];
+
+        // First pass: pull from cache — no network, no queue
+        for (const symbol of symbols) {
+            const url = `/api/stock/${symbol}?range=1mo&interval=1d`;
+            const cached = this.getFromCache(url);
+            if (cached?.chart?.result?.[0]) {
+                const meta = cached.chart.result[0].meta;
+                results.set(symbol.toUpperCase(), {
+                    currentPrice: meta.regularMarketPrice,
+                    currency: meta.currency || 'USD'
+                });
+            } else {
+                toFetch.push(symbol);
+            }
+        }
+
+        // Second pass: fetch only cache misses, queued with rate limiting
+        const requests = toFetch.map(symbol =>
+            this.queueRequest(async () => {
+                const url = `/api/stock/${symbol}?range=1mo&interval=1d`;
+                const data = await this.fetchAPI(url);
+
+                if (!data.chart?.result?.[0]) {
+                    throw new Error(`No data for ${symbol}`);
+                }
+
+                const meta = data.chart.result[0].meta;
+                results.set(symbol.toUpperCase(), {
+                    currentPrice: meta.regularMarketPrice,
+                    currency: meta.currency || 'USD'
+                });
+            }).catch(err => {
+                console.error(`Failed to fetch price for ${symbol}:`, err);
+            })
+        );
+
+        await Promise.all(requests);
+        return results;
+    }
+
     async fetchStockData(symbol) {
         // Use our proxy server to avoid CORS issues
         // Fetch both daily (for recent changes) and weekly (for chart - 4 years for 200-week MA)
