@@ -1419,10 +1419,12 @@ class StockDashboard {
             const valueInCAD = priceCurrency === 'USD' ? value * usdToCad : value;
 
             const latestPriceData = usingLatest ? this.latestPrices?.get(pos.symbol.toUpperCase()) : null;
+            const costBasisCAD = parseFloat(pos.total_cost || 0) * (pos.currency === 'USD' ? usdToCad : 1);
             positionsWithCategory.push({
                 symbol: pos.symbol,
                 categoryValue: categoryValue,
                 total_cost_cad: valueInCAD,
+                cost_basis_cad: costBasisCAD,
                 original_value: value,
                 original_currency: priceCurrency,
                 avgEntryPrice: parseFloat(pos.average_entry_price || 0),
@@ -1441,9 +1443,11 @@ class StockDashboard {
             const existing = categoryGroups.get(pos.categoryValue) || {
                 categoryValue: pos.categoryValue,
                 total_cad: 0,
+                total_cost_basis_cad: 0,
                 stocks: []
             };
             existing.total_cad += pos.total_cost_cad;
+            existing.total_cost_basis_cad += pos.cost_basis_cad;
             existing.stocks.push(pos);
             categoryGroups.set(pos.categoryValue, existing);
         });
@@ -1485,6 +1489,10 @@ class StockDashboard {
             // Interpolate color based on position
             const color = this.interpolateColor(colorPalette, index, sortedGroups.length);
 
+            const groupGrowth = usingLatest && group.total_cost_basis_cad > 0
+                ? ((group.total_cad - group.total_cost_basis_cad) / group.total_cost_basis_cad) * 100
+                : null;
+
             datasets.push({
                 label: group.categoryValue,
                 data: [percentage],
@@ -1493,6 +1501,7 @@ class StockDashboard {
                 borderWidth: 1,
                 percentage: percentage,
                 value: valueCAD,
+                groupGrowth: groupGrowth,
                 stocks: group.stocks
             });
         });
@@ -1570,6 +1579,11 @@ class StockDashboard {
                                     lines.push(`Value: ${window.dashboard.formatCurrency(dataset.value, 'CAD')}`);
                                 }
                                 lines.push(`Allocation: ${dataset.percentage}%`);
+
+                                if (dataset.groupGrowth !== null && dataset.groupGrowth !== undefined) {
+                                    const sign = dataset.groupGrowth >= 0 ? '+' : '';
+                                    lines.push(`Growth: ${sign}${dataset.groupGrowth.toFixed(2)}%`);
+                                }
 
                                 // Show list of stocks in this category value
                                 if (dataset.stocks && dataset.stocks.length > 0) {
