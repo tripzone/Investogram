@@ -5,12 +5,13 @@
 
 echo "🚀 Starting Stock Dashboard..."
 echo ""
-echo "Server will run at: http://localhost:8000"
+echo "Server will run at: http://localhost:8080"
 echo "Press Ctrl+C to stop the server"
 echo ""
 
 # Start custom Python server with proxy and open browser
 cd "$(dirname "$0")"
+export GOOGLE_APPLICATION_CREDENTIALS="$(pwd)/serviceAccountKey.json"
 python3 server.py &
 SERVER_PID=$!
 
@@ -18,7 +19,7 @@ SERVER_PID=$!
 sleep 2
 
 # Open in default browser
-open http://localhost:8000
+open http://localhost:8080
 
 # Keep script running and show instructions
 echo "✅ Dashboard is now running!"

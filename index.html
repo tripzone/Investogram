@@ -5,6 +5,10 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Stock Dashboard</title>
     <link rel="stylesheet" href="styles.css?v=24">
+    <!-- Firebase SDK (compat) -->
+    <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-auth-compat.js"></script>
+
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2.2.0/dist/chartjs-plugin-datalabels.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/luxon@3.4.4/build/global/luxon.min.js"></script>
@@ -48,6 +52,13 @@
                 </div>
                 <button id="collapseAllBtn" title="Collapse all cards">◢◣</button>
                 <button id="expandAllBtn" title="Expand all cards">◥◤</button>
+            </div>
+            <div class="header-center">
+                <button id="signInHeaderBtn" class="sign-in-header-btn" title="Sign in">Sign In</button>
+                <button id="signOutBtn" class="sign-out-btn auth-state-hidden" title="Sign out">
+                    <span id="userEmail" class="user-email"></span>
+                    Sign out
+                </button>
             </div>
             <div class="controls stock-controls">
                 <div class="add-stock-form">
@@ -167,7 +178,119 @@
         </div>
     </div>
 
+    <!-- Auth overlay — opened manually via sign-in button -->
+    <div id="authOverlay" class="auth-overlay hidden">
+        <div class="auth-card">
+            <p class="auth-subtitle">Sign in to sync your dashboard across devices</p>
+            <div id="authError" class="auth-error"></div>
+            <button id="signInWithGoogleBtn" class="auth-btn-google">
+                <svg width="18" height="18" viewBox="0 0 48 48"><path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/><path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/><path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/><path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/></svg>
+                Sign in with Google
+            </button>
+            <button id="skipAuthBtn" class="auth-skip-btn">Continue without signing in</button>
+        </div>
+    </div>
+
+    <style>
+        .auth-overlay {
+            position: fixed;
+            inset: 0;
+            background: rgba(10, 10, 10, 0.92);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 1000;
+        }
+        .auth-overlay.hidden { display: none; }
+        .auth-card {
+            background: #242424;
+            border: 1px solid #333;
+            border-radius: 8px;
+            padding: 36px 40px;
+            width: 320px;
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+        .auth-title { margin: 0; font-size: 1.2rem; color: #fff; }
+        .auth-subtitle { margin: 0; font-size: 1.1rem; color: #e8e8e8; font-weight: 500; }
+        .auth-input {
+            background: #1a1a1a;
+            border: 1px solid #444;
+            border-radius: 4px;
+            color: #fff;
+            font-size: 0.9rem;
+            padding: 8px 10px;
+            outline: none;
+            width: 100%;
+            box-sizing: border-box;
+        }
+        .auth-input:focus { border-color: #666; }
+        .auth-error { color: #f87171; font-size: 0.8rem; min-height: 1em; }
+        .auth-buttons { display: flex; gap: 8px; margin-top: 4px; }
+        .auth-btn {
+            flex: 1;
+            padding: 8px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 0.85rem;
+        }
+        .auth-btn-primary { background: #3b82f6; color: #fff; }
+        .auth-btn-primary:hover { background: #2563eb; }
+        .auth-btn-secondary { background: #333; color: #ccc; }
+        .auth-btn-secondary:hover { background: #444; }
+        .auth-btn-google {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 10px;
+            width: 100%;
+            padding: 10px;
+            background: #fff;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            color: #444;
+            cursor: pointer;
+            font-size: 0.9rem;
+            font-weight: 500;
+            margin-top: 4px;
+        }
+        .auth-btn-google:hover { background: #f5f5f5; border-color: #bbb; }
+        .auth-skip-btn {
+            background: none;
+            border: none;
+            color: #555;
+            cursor: pointer;
+            font-size: 0.8rem;
+            padding: 4px 0;
+            text-align: center;
+            text-decoration: underline;
+            text-underline-offset: 2px;
+        }
+        .auth-skip-btn:hover { color: #888; }
+        .sign-out-btn, .sign-in-header-btn {
+            background: none;
+            border: 1px solid #444;
+            border-radius: 4px;
+            color: #888;
+            cursor: pointer;
+            font-size: 0.75rem;
+            padding: 3px 8px;
+            display: flex;
+            align-items: center;
+            gap: 5px;
+        }
+        .sign-out-btn:hover, .sign-in-header-btn:hover { border-color: #666; color: #bbb; }
+        .user-email { max-width: 120px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        /* Visibility controlled by auth state */
+        .auth-state-hidden { display: none !important; }
+        #signInHeaderBtn { display: none; }
+    </style>
+
     <script src="api.js?v=9"></script>
     <script src="app.js?v=42"></script>
+    <script src="firebase-config.js"></script>
+    <script src="auth.js"></script>
 </body>
 </html>
