@@ -362,6 +362,80 @@ h1 {
     margin-top: 4px;
 }
 
+/* Ticker Selector */
+.ticker-selector-wrapper {
+    position: relative;
+    margin: 0 12px;
+}
+
+.ticker-selector-input {
+    padding: 4px 10px;
+    background: #1a1a1a;
+    color: #fff;
+    border: 1px solid #444;
+    border-radius: 3px;
+    font-size: 11px;
+    width: 140px;
+    transition: border-color 0.2s;
+}
+
+.ticker-selector-input:focus {
+    outline: none;
+    border-color: #667eea;
+}
+
+.ticker-selector-input::placeholder {
+    color: #555;
+}
+
+.ticker-dropdown {
+    position: absolute;
+    top: calc(100% + 4px);
+    left: 0;
+    width: 200px;
+    max-height: 200px;
+    overflow-y: auto;
+    background: #242424;
+    border: 1px solid #333;
+    border-radius: 3px;
+    z-index: 100;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+}
+
+.ticker-dropdown.hidden {
+    display: none;
+}
+
+.ticker-list {
+    display: flex;
+    flex-direction: column;
+}
+
+.ticker-list-item {
+    padding: 8px 12px;
+    cursor: pointer;
+    transition: background 0.15s;
+    border-bottom: 1px solid #2a2a2a;
+    font-size: 12px;
+    color: #aaa;
+}
+
+.ticker-list-item:last-child {
+    border-bottom: none;
+}
+
+.ticker-list-item:hover {
+    background: #2a2a2a;
+    color: #fff;
+}
+
+.ticker-list-empty {
+    padding: 12px;
+    text-align: center;
+    color: #666;
+    font-size: 11px;
+}
+
 /* Portfolio View Grid */
 #portfolioView {
     display: grid;

@@ -74,6 +74,20 @@ class StockDashboard {
                 cardTitle: 'Market Activity: Net Trading Volume',
                 description: 'Monthly net purchases (buys - sells)',
                 heading: 'Trading Activity'
+            },
+            {
+                id: 'market-activity-by-ticker',
+                title: 'Market Activity by Ticker',
+                cardTitle: 'Market Activity: By Ticker',
+                description: 'Monthly trading activity broken down by symbol',
+                heading: 'Trading Activity'
+            },
+            {
+                id: 'buys-sells-analysis',
+                title: 'Buys/Sells',
+                cardTitle: 'Stock Analysis: Buys/Sells by Price',
+                description: 'Transaction volumes at different price points',
+                heading: 'Stock Analysis'
             }
         ];
 
@@ -709,12 +723,28 @@ class StockDashboard {
 
             const canvasId = `portfolio-chart-${index}`;
 
-            // Add timeframe buttons for market activity graph
-            const timeframeButtons = graphId === 'market-activity' ? `
+            // Add timeframe buttons for market activity graphs
+            const isMarketActivityGraph = graphId === 'market-activity' || graphId === 'market-activity-by-ticker';
+            const timeframeButtons = isMarketActivityGraph ? `
                 <div class="timeframe-selector">
                     <button class="timeframe-btn active" data-timeframe="1y">1Y</button>
                     <button class="timeframe-btn" data-timeframe="5y">5Y</button>
                     <button class="timeframe-btn" data-timeframe="all">ALL</button>
+                </div>
+            ` : '';
+
+            // Add ticker selector for buys-sells-analysis graph
+            const tickerSelector = graphId === 'buys-sells-analysis' ? `
+                <div class="ticker-selector-wrapper">
+                    <input
+                        type="text"
+                        class="ticker-selector-input"
+                        placeholder="Select ticker..."
+                        autocomplete="off"
+                    >
+                    <div class="ticker-dropdown hidden">
+                        <div class="ticker-list"></div>
+                    </div>
                 </div>
             ` : '';
 
@@ -723,6 +753,7 @@ class StockDashboard {
                     <span class="graph-drag-handle">⋮⋮</span>
                     <h3>${graphDef.cardTitle || graphDef.title}</h3>
                     ${timeframeButtons}
+                    ${tickerSelector}
                     <button class="remove-graph-btn" onclick="dashboard.removeGraph('${graphId}')">×</button>
                 </div>
                 <div class="graph-card-body">
@@ -733,8 +764,8 @@ class StockDashboard {
 
             portfolioView.appendChild(graphCard);
 
-            // Add timeframe button listeners for market activity
-            if (graphId === 'market-activity') {
+            // Add timeframe button listeners for market activity graphs
+            if (isMarketActivityGraph) {
                 const timeframeBtns = graphCard.querySelectorAll('.timeframe-btn');
                 timeframeBtns.forEach(btn => {
                     btn.addEventListener('click', (e) => {
@@ -745,9 +776,18 @@ class StockDashboard {
                         btn.classList.add('active');
                         // Re-render with new timeframe
                         const timeframe = btn.dataset.timeframe;
-                        this.renderMarketActivity(canvasId, timeframe);
+                        if (graphId === 'market-activity') {
+                            this.renderMarketActivity(canvasId, timeframe);
+                        } else if (graphId === 'market-activity-by-ticker') {
+                            this.renderMarketActivityByTicker(canvasId, timeframe);
+                        }
                     });
                 });
+            }
+
+            // Add ticker selector listeners for buys-sells-analysis graph
+            if (graphId === 'buys-sells-analysis') {
+                this.setupTickerSelector(graphCard, canvasId);
             }
 
             // Add resize functionality
@@ -783,6 +823,12 @@ class StockDashboard {
                 break;
             case 'market-activity':
                 await this.renderMarketActivity(canvasId);
+                break;
+            case 'market-activity-by-ticker':
+                await this.renderMarketActivityByTicker(canvasId);
+                break;
+            case 'buys-sells-analysis':
+                await this.renderBuySellAnalysis(canvasId);
                 break;
             default:
                 // Show placeholder for unimplemented graphs
@@ -1546,9 +1592,9 @@ class StockDashboard {
         console.log('[Market Activity] Processed monthly data:', monthsToShow);
         console.log('[Market Activity] Net activity values:', netActivity);
 
-        // Determine colors (green for net buys, red for net sells)
-        const backgroundColors = netActivity.map(value => value >= 0 ? 'rgba(0, 200, 5, 0.7)' : 'rgba(255, 69, 58, 0.7)');
-        const borderColors = netActivity.map(value => value >= 0 ? 'rgba(0, 200, 5, 1)' : 'rgba(255, 69, 58, 1)');
+        // Determine colors (bright teal for net buys, rust red for net sells - ends of asset allocation palette)
+        const backgroundColors = netActivity.map(value => value >= 0 ? 'rgba(61, 138, 158, 0.7)' : 'rgba(192, 72, 72, 0.7)');
+        const borderColors = netActivity.map(value => value >= 0 ? 'rgba(61, 138, 158, 1)' : 'rgba(192, 72, 72, 1)');
 
         const showValues = this.showValues;
         const formatCurrency = this.formatCurrency.bind(this);
@@ -1650,6 +1696,482 @@ class StockDashboard {
                                     return '';
                                 }
                             }
+                        }
+                    }
+                }
+            }
+        });
+
+        // Store chart instance
+        this.portfolioCharts.set(canvasId, chart);
+    }
+
+    async renderMarketActivityByTicker(canvasId, timeframe = '1y') {
+        const tradesData = this.loadPortfolioData('trades');
+        const canvas = document.getElementById(canvasId);
+
+        if (!canvas) return;
+
+        // Destroy existing chart if it exists
+        const existingChart = this.portfolioCharts.get(canvasId);
+        if (existingChart) {
+            existingChart.destroy();
+            this.portfolioCharts.delete(canvasId);
+        }
+
+        if (!tradesData || tradesData.length === 0) {
+            const ctx = canvas.getContext('2d');
+            ctx.fillStyle = '#666';
+            ctx.font = '13px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto';
+            ctx.textAlign = 'center';
+            ctx.fillText('No trades data available. Upload trades data to see this chart.', canvas.width / 2, canvas.height / 2);
+            return;
+        }
+
+        // Get exchange rate USD -> CAD
+        let usdToCad = await this.getExchangeRate('USD', 'CAD');
+        if (!usdToCad) {
+            usdToCad = 1.0;
+        }
+
+        // Generate month range based on timeframe
+        const now = new Date();
+        let monthsToShow = [];
+
+        if (timeframe === 'all') {
+            let earliestDate = now;
+            tradesData.forEach(trade => {
+                const date = new Date(trade.transaction_date);
+                if (!isNaN(date.getTime()) && date < earliestDate) {
+                    earliestDate = date;
+                }
+            });
+
+            const startDate = new Date(earliestDate.getFullYear(), earliestDate.getMonth(), 1);
+            const endDate = new Date(now.getFullYear(), now.getMonth(), 1);
+            const currentDate = new Date(startDate);
+
+            while (currentDate <= endDate) {
+                const monthKey = `${currentDate.getFullYear()}-${String(currentDate.getMonth() + 1).padStart(2, '0')}`;
+                monthsToShow.push({
+                    key: monthKey,
+                    label: currentDate.toLocaleDateString('en-US', { year: 'numeric', month: 'short' })
+                });
+                currentDate.setMonth(currentDate.getMonth() + 1);
+            }
+        } else {
+            const monthCount = timeframe === '1y' ? 12 : 60;
+            for (let i = monthCount - 1; i >= 0; i--) {
+                const date = new Date(now.getFullYear(), now.getMonth() - i, 1);
+                const monthKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+                monthsToShow.push({
+                    key: monthKey,
+                    label: date.toLocaleDateString('en-US', { year: 'numeric', month: 'short' })
+                });
+            }
+        }
+
+        // Process trades: group by ticker and month
+        const tickerMonthData = {}; // {ticker: {monthKey: netAmount}}
+        const allTickers = new Set();
+
+        tradesData.forEach(trade => {
+            const type = trade.type?.toLowerCase();
+            if (type === 'dividend') return;
+
+            const date = new Date(trade.transaction_date);
+            if (isNaN(date.getTime())) return;
+
+            const monthKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+            const monthData = monthsToShow.find(m => m.key === monthKey);
+            if (!monthData) return;
+
+            const ticker = trade.symbol;
+            if (!ticker) return;
+
+            let amount = 0;
+            if (trade.net_amount) {
+                amount = parseFloat(trade.net_amount);
+            } else if (trade.quantity && trade.price) {
+                amount = parseFloat(trade.quantity) * parseFloat(trade.price);
+            }
+
+            if (isNaN(amount) || amount === 0) return;
+
+            // Convert to CAD
+            const amountInCAD = trade.currency === 'USD' ? amount * usdToCad : amount;
+
+            // Initialize ticker data if needed
+            if (!tickerMonthData[ticker]) {
+                tickerMonthData[ticker] = {};
+            }
+
+            // Add to ticker's month total (amount is already signed: positive for buys, negative for sells)
+            if (!tickerMonthData[ticker][monthKey]) {
+                tickerMonthData[ticker][monthKey] = 0;
+            }
+            tickerMonthData[ticker][monthKey] += amountInCAD;
+            allTickers.add(ticker);
+        });
+
+        // Create datasets (one per ticker)
+        const labels = monthsToShow.map(m => m.label);
+        const datasets = [];
+        const tickerArray = Array.from(allTickers).sort();
+
+        // Define color palette (same as asset allocation)
+        const colorPalette = [
+            '#1E4D5C', // Dark teal
+            '#2A6B7D', // Medium teal
+            '#3D8A9E', // Bright teal
+            '#5FA89D', // Seafoam
+            '#7FB685', // Sage green
+            '#9FBD6E', // Olive
+            '#C5B358', // Gold
+            '#D9A54A', // Mustard
+            '#E89447', // Orange gold
+            '#EE7F43', // Tangerine
+            '#F16940', // Bright orange
+            '#D95944', // Rust orange
+            '#C04848'  // Rust red
+        ];
+
+        tickerArray.forEach((ticker, index) => {
+            const data = monthsToShow.map(month => {
+                return tickerMonthData[ticker][month.key] || 0;
+            });
+
+            // Use interpolated color from palette
+            const color = this.interpolateColor(colorPalette, index, tickerArray.length);
+
+            datasets.push({
+                label: ticker,
+                data: data,
+                backgroundColor: color,
+                borderColor: color,
+                borderWidth: 1,
+                stack: 'stack0' // All datasets in same stack
+            });
+        });
+
+        const showValues = this.showValues;
+        const formatCurrency = this.formatCurrency.bind(this);
+        const currentTimeframe = timeframe;
+
+        // Create chart
+        const chart = new Chart(canvas.getContext('2d'), {
+            type: 'bar',
+            data: {
+                labels: labels,
+                datasets: datasets
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                animation: false,
+                plugins: {
+                    legend: {
+                        display: false
+                    },
+                    tooltip: {
+                        backgroundColor: 'rgba(0, 0, 0, 0.9)',
+                        padding: 12,
+                        titleColor: '#fff',
+                        bodyColor: '#fff',
+                        borderColor: '#444',
+                        borderWidth: 1,
+                        callbacks: {
+                            title: function(context) {
+                                return context[0].label;
+                            },
+                            label: function(context) {
+                                const ticker = context.dataset.label;
+                                const value = context.parsed.y;
+                                const lines = [];
+
+                                if (showValues) {
+                                    lines.push(`${ticker}: ${formatCurrency(Math.abs(value), 'CAD')}`);
+                                    lines.push(value >= 0 ? '(Bought)' : '(Sold)');
+                                } else {
+                                    lines.push(`${ticker}: ${value >= 0 ? 'Bought' : 'Sold'}`);
+                                }
+
+                                return lines;
+                            }
+                        }
+                    }
+                },
+                scales: {
+                    x: {
+                        stacked: true,
+                        grid: {
+                            color: '#2a2a2a',
+                            drawBorder: false
+                        },
+                        ticks: {
+                            color: '#999',
+                            maxRotation: 45,
+                            minRotation: 45,
+                            autoSkip: true,
+                            maxTicksLimit: currentTimeframe === 'all' ? 20 : (currentTimeframe === '5y' ? 15 : 12)
+                        }
+                    },
+                    y: {
+                        stacked: true,
+                        grid: {
+                            color: '#2a2a2a',
+                            drawBorder: false
+                        },
+                        ticks: {
+                            color: '#999',
+                            callback: function(value) {
+                                if (!showValues) {
+                                    return '';
+                                }
+
+                                const absValue = Math.abs(value);
+                                const sign = value < 0 ? '-' : '';
+
+                                if (absValue === 0) {
+                                    return '$0';
+                                } else if (absValue >= 1000000) {
+                                    return sign + '$' + (absValue / 1000000).toFixed(1) + 'M';
+                                } else if (absValue >= 1000) {
+                                    return sign + '$' + (absValue / 1000).toFixed(0) + 'K';
+                                } else if (absValue >= 1) {
+                                    return sign + '$' + absValue.toFixed(0);
+                                } else {
+                                    return '';
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        });
+
+        // Store chart instance
+        this.portfolioCharts.set(canvasId, chart);
+    }
+
+    setupTickerSelector(graphCard, canvasId) {
+        const input = graphCard.querySelector('.ticker-selector-input');
+        const dropdown = graphCard.querySelector('.ticker-dropdown');
+        const tickerList = graphCard.querySelector('.ticker-list');
+
+        // Get all unique tickers from trades
+        const tradesData = this.loadPortfolioData('trades');
+        const tickers = new Set();
+        if (tradesData) {
+            tradesData.forEach(trade => {
+                if (trade.symbol && trade.type?.toLowerCase() !== 'dividend') {
+                    tickers.add(trade.symbol);
+                }
+            });
+        }
+        const sortedTickers = Array.from(tickers).sort();
+
+        // Show dropdown on focus
+        input.addEventListener('focus', () => {
+            this.showTickerDropdown(input, dropdown, tickerList, sortedTickers, canvasId);
+        });
+
+        // Filter tickers as user types
+        input.addEventListener('input', (e) => {
+            const query = e.target.value.toLowerCase();
+            const filtered = sortedTickers.filter(ticker => ticker.toLowerCase().includes(query));
+            this.showTickerDropdown(input, dropdown, tickerList, filtered, canvasId);
+        });
+
+        // Hide dropdown when clicking outside
+        document.addEventListener('click', (e) => {
+            if (!e.target.closest('.ticker-selector-wrapper')) {
+                dropdown.classList.add('hidden');
+            }
+        });
+    }
+
+    showTickerDropdown(input, dropdown, tickerList, tickers, canvasId) {
+        tickerList.innerHTML = '';
+        dropdown.classList.remove('hidden');
+
+        if (tickers.length === 0) {
+            tickerList.innerHTML = '<div class="ticker-list-empty">No tickers found</div>';
+            return;
+        }
+
+        tickers.forEach(ticker => {
+            const item = document.createElement('div');
+            item.className = 'ticker-list-item';
+            item.textContent = ticker;
+            item.addEventListener('click', () => {
+                input.value = ticker;
+                dropdown.classList.add('hidden');
+                this.renderBuySellAnalysis(canvasId, ticker);
+            });
+            tickerList.appendChild(item);
+        });
+    }
+
+    async renderBuySellAnalysis(canvasId, ticker = null) {
+        const tradesData = this.loadPortfolioData('trades');
+        const canvas = document.getElementById(canvasId);
+
+        if (!canvas) return;
+
+        // Destroy existing chart if it exists
+        const existingChart = this.portfolioCharts.get(canvasId);
+        if (existingChart) {
+            existingChart.destroy();
+            this.portfolioCharts.delete(canvasId);
+        }
+
+        if (!tradesData || tradesData.length === 0) {
+            const ctx = canvas.getContext('2d');
+            ctx.fillStyle = '#666';
+            ctx.font = '13px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto';
+            ctx.textAlign = 'center';
+            ctx.fillText('No trades data available. Upload trades data to see this chart.', canvas.width / 2, canvas.height / 2);
+            return;
+        }
+
+        if (!ticker) {
+            const ctx = canvas.getContext('2d');
+            ctx.fillStyle = '#666';
+            ctx.font = '13px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto';
+            ctx.textAlign = 'center';
+            ctx.fillText('Select a ticker to view buy/sell analysis', canvas.width / 2, canvas.height / 2);
+            return;
+        }
+
+        // Get exchange rate USD -> CAD
+        let usdToCad = await this.getExchangeRate('USD', 'CAD');
+        if (!usdToCad) {
+            usdToCad = 1.0;
+        }
+
+        // Process trades for selected ticker
+        const priceData = {}; // {price: {buys: quantity, sells: quantity}}
+
+        tradesData.forEach(trade => {
+            if (trade.symbol !== ticker) return;
+
+            const type = trade.type?.toLowerCase();
+            if (type === 'dividend') return;
+
+            const price = parseFloat(trade.price);
+            if (isNaN(price) || price === 0) return;
+
+            const quantity = parseFloat(trade.quantity);
+            if (isNaN(quantity) || quantity === 0) return;
+
+            // Round price to integer
+            const roundedPrice = Math.round(price);
+
+            if (!priceData[roundedPrice]) {
+                priceData[roundedPrice] = { buys: 0, sells: 0 };
+            }
+
+            // Type 'trade' with positive quantity = buy, negative = sell
+            if (type === 'trade' || type === 'buy' || type === 'sell') {
+                if (quantity > 0 || type === 'buy') {
+                    priceData[roundedPrice].buys += Math.abs(quantity);
+                } else {
+                    priceData[roundedPrice].sells += Math.abs(quantity);
+                }
+            }
+        });
+
+        // Sort prices
+        const prices = Object.keys(priceData).map(p => parseInt(p)).sort((a, b) => a - b);
+        const labels = prices.map(p => `$${p}`);
+
+        // Prepare buy and sell data (buys positive, sells negative)
+        const buyData = prices.map(price => priceData[price].buys);
+        const sellData = prices.map(price => -priceData[price].sells); // Negative for left side
+
+        const showValues = this.showValues;
+
+        // Create chart
+        const chart = new Chart(canvas.getContext('2d'), {
+            type: 'bar',
+            data: {
+                labels: labels,
+                datasets: [
+                    {
+                        label: 'Buys',
+                        data: buyData,
+                        backgroundColor: 'rgba(61, 138, 158, 0.7)',
+                        borderColor: 'rgba(61, 138, 158, 1)',
+                        borderWidth: 1
+                    },
+                    {
+                        label: 'Sells',
+                        data: sellData,
+                        backgroundColor: 'rgba(192, 72, 72, 0.7)',
+                        borderColor: 'rgba(192, 72, 72, 1)',
+                        borderWidth: 1
+                    }
+                ]
+            },
+            options: {
+                indexAxis: 'y', // Horizontal bars
+                responsive: true,
+                maintainAspectRatio: false,
+                animation: false,
+                plugins: {
+                    legend: {
+                        display: true,
+                        position: 'top',
+                        align: 'end',
+                        labels: {
+                            color: '#999',
+                            font: {
+                                size: 11
+                            },
+                            boxWidth: 20,
+                            padding: 12
+                        }
+                    },
+                    tooltip: {
+                        backgroundColor: 'rgba(0, 0, 0, 0.9)',
+                        padding: 12,
+                        titleColor: '#fff',
+                        bodyColor: '#fff',
+                        borderColor: '#444',
+                        borderWidth: 1,
+                        callbacks: {
+                            title: function(context) {
+                                return `Price: ${context[0].label}`;
+                            },
+                            label: function(context) {
+                                const value = Math.abs(context.parsed.x);
+                                const type = context.dataset.label;
+                                return `${type}: ${value.toFixed(2)} shares`;
+                            }
+                        }
+                    }
+                },
+                scales: {
+                    x: {
+                        grid: {
+                            color: '#2a2a2a',
+                            drawBorder: false
+                        },
+                        ticks: {
+                            color: '#999',
+                            callback: function(value) {
+                                return Math.abs(value);
+                            }
+                        }
+                    },
+                    y: {
+                        grid: {
+                            color: '#2a2a2a',
+                            drawBorder: false
+                        },
+                        ticks: {
+                            color: '#999'
                         }
                     }
                 }
