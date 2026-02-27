@@ -55,9 +55,10 @@ class StockDashboard {
         this.renderAllStocks();
         this.renderPortfolioGraphs();
 
-        // Update divider widths on window resize
+        // Update divider and card widths on window resize
         window.addEventListener('resize', () => {
             this.updateAllDividerWidths();
+            this.updateCardWidthsForViewport();
         });
     }
 
@@ -2814,11 +2815,6 @@ class StockDashboard {
             this.refreshAllStocks();
         });
 
-        // Portfolio refresh button
-        document.getElementById('refreshPortfolioBtn').addEventListener('click', () => {
-            this.renderPortfolioGraphs();
-        });
-
         // Collapse all button
         document.getElementById('collapseAllBtn').addEventListener('click', () => {
             this.collapseAllCards();
@@ -3205,6 +3201,17 @@ class StockDashboard {
         dividers.forEach(divider => this.updateDividerWidth(divider));
     }
 
+    updateCardWidthsForViewport() {
+        const isMobile = window.innerWidth <= 768;
+        const baseWidth = this.stockList.length > 6 ? 240 : 280;
+        document.querySelectorAll('.stock-card').forEach(card => {
+            const width = parseInt(card.dataset.width) || 1;
+            if (width > 1) {
+                card.style.width = isMobile ? '100%' : `${baseWidth * width}px`;
+            }
+        });
+    }
+
     removeDivider(dividerElement) {
         if (!confirm('Remove divider?')) {
             return;
@@ -3233,10 +3240,14 @@ class StockDashboard {
 
         // Set width based on multiplier - match actual single card widths
         if (width > 1) {
-            // Determine base width: 240px in many-stocks mode (>6 stocks), 280px otherwise
-            const baseWidth = this.stockList.length > 6 ? 240 : 280;
-            // Simply multiply base width (box-sizing: border-box includes everything)
-            card.style.width = `${baseWidth * width}px`;
+            if (window.innerWidth <= 768) {
+                card.style.width = '100%';   // :2+ cards take full row on mobile
+            } else {
+                // Determine base width: 240px in many-stocks mode (>6 stocks), 280px otherwise
+                const baseWidth = this.stockList.length > 6 ? 240 : 280;
+                // Simply multiply base width (box-sizing: border-box includes everything)
+                card.style.width = `${baseWidth * width}px`;
+            }
         }
 
         card.innerHTML = `

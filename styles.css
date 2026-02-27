@@ -1198,28 +1198,130 @@ button:active {
 
 /* Responsive Design */
 @media (max-width: 768px) {
-    .stock-grid {
-        flex-direction: column;
+    /* Header: 2-row layout */
+    header {
+        flex-wrap: wrap;
+        padding: 8px 12px;
+        gap: 6px;
     }
 
-    .stock-card {
-        border-right: none;
-        border-bottom: 1px solid #333;
-        min-width: unset;
+    .header-left {
+        flex: 1;
+        min-width: 0;
+    }
+
+    .header-center {
+        flex: 0 0 auto;
     }
 
     .controls {
-        flex-direction: column;
-        align-items: stretch;
+        flex: 0 0 100%;
+        order: 3;
+        justify-content: flex-start;
     }
 
     .add-stock-form {
-        width: 100%;
+        flex: 1;
         max-width: unset;
     }
 
-    #refreshBtn {
-        width: 100%;
+    #stockInput {
+        flex: 1;
+        width: auto;
+        min-width: 0;
+    }
+
+    .add-graph-form {
+        flex: 1;
+    }
+
+    #graphInput {
+        flex: 1;
+        width: auto;
+        min-width: 0;
+    }
+
+    /* Hide expand/collapse to save header space */
+    #collapseAllBtn,
+    #expandAllBtn {
+        display: none;
+    }
+
+    /* Abbreviate sign-out: hide email, keep button */
+    .user-email {
+        display: none;
+    }
+
+    /* Stock grid: 2 per row */
+    .stock-grid {
+        flex-direction: row;
+        flex-wrap: wrap;
+        overflow: hidden;
+    }
+
+    .stock-card {
+        width: 50%;
+        flex-shrink: 0;
+        border-right: 1px solid #333;
+        border-bottom: 1px solid #333;
+        padding: 14px 16px;
+        min-width: 0;
+    }
+
+    /* Dividers span full width */
+    #stockGrid .divider {
+        width: 100% !important;
+    }
+
+    /* :2+ cards should match 2 :1 cards (2 × 50% = 100%) */
+    .stock-card[data-width="2"],
+    .stock-card[data-width="3"],
+    .stock-card[data-width="4"],
+    .stock-card[data-width="5"],
+    .stock-card[data-width="6"] {
+        width: 100% !important;
+    }
+
+    .primary-metric {
+        font-size: 22px;
+    }
+
+    .chart-container {
+        height: 75px;
+        margin: 10px 0 8px;
+    }
+
+    /* Hide resize handle — desktop-only */
+    .resize-handle {
+        display: none;
+    }
+
+    /* Portfolio graphs */
+    .graph-card-body {
+        min-height: 280px;
+        padding: 12px;
+    }
+
+    .graph-card-header {
+        padding: 12px 16px;
+        flex-wrap: wrap;
+        gap: 6px;
+    }
+
+    .graph-resize-handle {
+        display: none;
+    }
+
+    #portfolioView {
+        gap: 12px;
+        padding: 12px;
+    }
+
+    /* Force each portfolio graph card and divider to full width on mobile,
+       overriding any saved span-N inline styles */
+    .portfolio-graph-card,
+    .portfolio-divider {
+        grid-column: 1 / -1 !important;
     }
 }
 
