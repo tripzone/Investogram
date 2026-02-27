@@ -17,6 +17,8 @@ class StockDashboard {
         this.selectedGraph = null;
         this.showValues = this.loadShowValuesPreference();
         this.resizing = null; // Track active resize operation
+        this.latestPrices = null; // Map<symbol, { currentPrice, currency }>
+        this.latestPricesState = 'idle'; // 'idle' | 'loading' | 'active' | 'error'
         this.availableGraphs = [
             {
                 id: 'asset-allocation',
@@ -712,10 +714,6 @@ class StockDashboard {
             if (typeof item === 'string') {
                 return { id: item, width: 6 };
             }
-            // Migrate old 3-column scale to new 6-column scale
-            if (typeof item === 'object' && item.width <= 3) {
-                return { ...item, width: item.width * 2 };
-            }
             return item;
         });
     }
@@ -775,6 +773,20 @@ class StockDashboard {
                 </div>
             ` : '';
 
+            // Add refresh button for allocation graphs (asset-allocation + category-*)
+            const isAllocationGraph = graphId === 'asset-allocation' || graphId.startsWith('category-');
+            const allocationRefreshBtn = isAllocationGraph ? `
+                <button class="allocation-refresh-btn ${this.latestPricesState}"
+                        title="Toggle latest price view"
+                        onclick="event.stopPropagation(); dashboard.handleAllocationRefresh()">
+                    <svg class="refresh-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M23 4v6h-6"/>
+                        <path d="M1 20v-6h6"/>
+                        <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>
+                    </svg>
+                </button>
+            ` : '';
+
             // Add ticker selector for buys-sells graphs
             const tickerSelector = (graphId === 'buys-sells-analysis' || graphId === 'buys-sells-by-date') ? `
                 <div class="ticker-selector-wrapper">
@@ -794,6 +806,7 @@ class StockDashboard {
                 <div class="graph-card-header">
                     <span class="graph-drag-handle">⋮⋮</span>
                     <h3>${graphDef.cardTitle || graphDef.title}</h3>
+                    ${allocationRefreshBtn}
                     ${timeframeButtons}
                     ${tickerSelector}
                     <button class="remove-graph-btn" onclick="dashboard.removeGraph('${graphId}')">×</button>
@@ -930,6 +943,71 @@ class StockDashboard {
         }
     }
 
+    async handleAllocationRefresh() {
+        // Toggle off if already showing latest prices
+        if (this.latestPricesState === 'active') {
+            this.latestPrices = null;
+            this.latestPricesState = 'idle';
+            this.setAllocationRefreshState('idle');
+            this.rerenderAllocationGraphs();
+            return;
+        }
+
+        // Don't start a new fetch while one is in progress
+        if (this.latestPricesState === 'loading') return;
+
+        this.setAllocationRefreshState('loading');
+
+        try {
+            const positionsData = this.loadPortfolioData('positions');
+            if (!positionsData || positionsData.length === 0) {
+                this.setAllocationRefreshState('idle');
+                return;
+            }
+
+            const symbols = [...new Set(positionsData.map(p => p.symbol))];
+            this.latestPrices = await window.stockAPI.fetchPortfolioCurrentPrices(symbols);
+
+            if (this.latestPrices.size === 0) {
+                throw new Error('No prices fetched');
+            }
+
+            this.latestPricesState = 'active';
+            this.setAllocationRefreshState('active');
+            this.rerenderAllocationGraphs();
+        } catch (err) {
+            console.error('Failed to fetch latest prices:', err);
+            this.latestPrices = null;
+            this.latestPricesState = 'error';
+            this.setAllocationRefreshState('error');
+        }
+    }
+
+    setAllocationRefreshState(state) {
+        this.latestPricesState = state;
+        document.querySelectorAll('.allocation-refresh-btn').forEach(btn => {
+            btn.className = `allocation-refresh-btn ${state}`;
+        });
+    }
+
+    rerenderAllocationGraphs() {
+        this.portfolioGraphs.forEach((graphEntry) => {
+            if (graphEntry.isDivider) return;
+            const graphId = typeof graphEntry === 'string' ? graphEntry : graphEntry.id;
+            if (graphId !== 'asset-allocation' && !graphId.startsWith('category-')) return;
+
+            const canvasId = this.graphCanvasMap.get(graphId);
+            if (!canvasId) return;
+
+            const existingChart = this.portfolioCharts.get(canvasId);
+            if (existingChart) {
+                existingChart.destroy();
+                this.portfolioCharts.delete(canvasId);
+            }
+            this.renderGraph(graphId, canvasId);
+        });
+    }
+
     async getExchangeRate(from, to) {
         // Check cache first (cache for 1 hour)
         const cacheKey = `exchange_rate_${from}_${to}`;
@@ -1027,16 +1105,33 @@ class StockDashboard {
             usdToCad = 1.0;
         }
 
-        // Convert all values to CAD
+        // Convert all values to CAD — use latest market price if available, otherwise acquisition cost
+        const usingLatest = this.latestPricesState === 'active' && this.latestPrices;
         const positionsInCAD = positionsData.map(pos => {
-            const value = parseFloat(pos.total_cost || 0);
-            const valueInCAD = pos.currency === 'USD' ? value * usdToCad : value;
+            let value, priceCurrency;
+
+            if (usingLatest) {
+                const priceData = this.latestPrices.get(pos.symbol.toUpperCase());
+                if (priceData) {
+                    value = parseFloat(pos.quantity || 0) * priceData.currentPrice;
+                    priceCurrency = priceData.currency;
+                } else {
+                    // Fallback to acquisition cost if this symbol's price wasn't fetched
+                    value = parseFloat(pos.total_cost || 0);
+                    priceCurrency = pos.currency;
+                }
+            } else {
+                value = parseFloat(pos.total_cost || 0);
+                priceCurrency = pos.currency;
+            }
+
+            const valueInCAD = priceCurrency === 'USD' ? value * usdToCad : value;
 
             return {
                 ...pos,
                 total_cost_cad: valueInCAD,
                 original_value: value,
-                original_currency: pos.currency
+                original_currency: priceCurrency
             };
         });
 
@@ -1079,6 +1174,10 @@ class StockDashboard {
             const color = this.interpolateColor(colorPalette, index, sortedPositions.length);
             colors.push(color);
 
+            const priceData = usingLatest ? this.latestPrices?.get(pos.symbol.toUpperCase()) : null;
+            const avgEntryPrice = parseFloat(pos.average_entry_price || 0);
+            const currentPrice = priceData ? priceData.currentPrice : null;
+
             datasets.push({
                 label: pos.symbol,
                 data: [percentage],
@@ -1088,7 +1187,9 @@ class StockDashboard {
                 percentage: percentage,
                 value: valueCAD,
                 originalValue: pos.original_value,
-                originalCurrency: pos.original_currency
+                originalCurrency: pos.original_currency,
+                avgEntryPrice: avgEntryPrice,
+                currentPrice: currentPrice
             });
         });
 
@@ -1171,6 +1272,12 @@ class StockDashboard {
                                     }
                                 }
                                 lines.push(`Allocation: ${dataset.percentage}%`);
+
+                                if (dataset.currentPrice !== null && dataset.avgEntryPrice > 0) {
+                                    const growth = ((dataset.currentPrice - dataset.avgEntryPrice) / dataset.avgEntryPrice) * 100;
+                                    const sign = growth >= 0 ? '+' : '';
+                                    lines.push(`Growth: ${sign}${growth.toFixed(2)}%`);
+                                }
 
                                 return lines;
                             }
@@ -1283,7 +1390,8 @@ class StockDashboard {
             }
         });
 
-        // Convert all positions to CAD and add category value
+        // Convert all positions to CAD and add category value — use latest price if available
+        const usingLatest = this.latestPricesState === 'active' && this.latestPrices;
         const positionsWithCategory = [];
         positionsData.forEach(pos => {
             const categoryValue = symbolToCategoryValue.get(pos.symbol);
@@ -1292,15 +1400,35 @@ class StockDashboard {
                 return; // Skip positions without category data
             }
 
-            const value = parseFloat(pos.total_cost || 0);
-            const valueInCAD = pos.currency === 'USD' ? value * usdToCad : value;
+            let value, priceCurrency;
 
+            if (usingLatest) {
+                const priceData = this.latestPrices.get(pos.symbol.toUpperCase());
+                if (priceData) {
+                    value = parseFloat(pos.quantity || 0) * priceData.currentPrice;
+                    priceCurrency = priceData.currency;
+                } else {
+                    value = parseFloat(pos.total_cost || 0);
+                    priceCurrency = pos.currency;
+                }
+            } else {
+                value = parseFloat(pos.total_cost || 0);
+                priceCurrency = pos.currency;
+            }
+
+            const valueInCAD = priceCurrency === 'USD' ? value * usdToCad : value;
+
+            const latestPriceData = usingLatest ? this.latestPrices?.get(pos.symbol.toUpperCase()) : null;
+            const costBasisCAD = parseFloat(pos.total_cost || 0) * (pos.currency === 'USD' ? usdToCad : 1);
             positionsWithCategory.push({
                 symbol: pos.symbol,
                 categoryValue: categoryValue,
                 total_cost_cad: valueInCAD,
+                cost_basis_cad: costBasisCAD,
                 original_value: value,
-                original_currency: pos.currency
+                original_currency: priceCurrency,
+                avgEntryPrice: parseFloat(pos.average_entry_price || 0),
+                currentPrice: latestPriceData ? latestPriceData.currentPrice : null
             });
         });
 
@@ -1315,9 +1443,11 @@ class StockDashboard {
             const existing = categoryGroups.get(pos.categoryValue) || {
                 categoryValue: pos.categoryValue,
                 total_cad: 0,
+                total_cost_basis_cad: 0,
                 stocks: []
             };
             existing.total_cad += pos.total_cost_cad;
+            existing.total_cost_basis_cad += pos.cost_basis_cad;
             existing.stocks.push(pos);
             categoryGroups.set(pos.categoryValue, existing);
         });
@@ -1359,6 +1489,10 @@ class StockDashboard {
             // Interpolate color based on position
             const color = this.interpolateColor(colorPalette, index, sortedGroups.length);
 
+            const groupGrowth = usingLatest && group.total_cost_basis_cad > 0
+                ? ((group.total_cad - group.total_cost_basis_cad) / group.total_cost_basis_cad) * 100
+                : null;
+
             datasets.push({
                 label: group.categoryValue,
                 data: [percentage],
@@ -1367,6 +1501,7 @@ class StockDashboard {
                 borderWidth: 1,
                 percentage: percentage,
                 value: valueCAD,
+                groupGrowth: groupGrowth,
                 stocks: group.stocks
             });
         });
@@ -1445,13 +1580,24 @@ class StockDashboard {
                                 }
                                 lines.push(`Allocation: ${dataset.percentage}%`);
 
+                                if (dataset.groupGrowth !== null && dataset.groupGrowth !== undefined) {
+                                    const sign = dataset.groupGrowth >= 0 ? '+' : '';
+                                    lines.push(`Growth: ${sign}${dataset.groupGrowth.toFixed(2)}%`);
+                                }
+
                                 // Show list of stocks in this category value
                                 if (dataset.stocks && dataset.stocks.length > 0) {
                                     lines.push(''); // Empty line
                                     lines.push('Stocks:');
                                     dataset.stocks.forEach(stock => {
                                         const stockPercent = (stock.total_cost_cad / dataset.value * 100).toFixed(1);
-                                        lines.push(`  ${stock.symbol}: ${stockPercent}%`);
+                                        let stockLine = `  ${stock.symbol}: ${stockPercent}%`;
+                                        if (stock.currentPrice !== null && stock.avgEntryPrice > 0) {
+                                            const growth = ((stock.currentPrice - stock.avgEntryPrice) / stock.avgEntryPrice) * 100;
+                                            const sign = growth >= 0 ? '+' : '';
+                                            stockLine += ` (${sign}${growth.toFixed(1)}%)`;
+                                        }
+                                        lines.push(stockLine);
                                     });
                                 }
 

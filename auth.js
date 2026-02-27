@@ -92,6 +92,14 @@ async function pullFromServer() {
             }
         }
 
+        // Push any local data the server didn't have (e.g. new account, or keys added since last sync)
+        for (const key of SYNC_KEYS) {
+            if (data[key] === undefined && localStorage.getItem(key) !== null) {
+                needsPush = true;
+                break;
+            }
+        }
+
         if (needsPush) {
             // Push merged result up so other devices see the guest additions too
             await pushToServer();
@@ -193,6 +201,7 @@ firebaseAuth.onAuthStateChanged(async (user) => {
         await pullFromServer();
         if (window.dashboard) {
             window.dashboard.stockList = window.dashboard.loadStockList();
+            window.dashboard.updateAvailableGraphs();
             window.dashboard.portfolioGraphs = window.dashboard.loadPortfolioGraphs();
             window.dashboard.renderAllStocks();
             window.dashboard.renderPortfolioGraphs();
