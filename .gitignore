@@ -26,3 +26,9 @@ __pycache__/
 
 # Node modules (if you add npm later)
 node_modules/
+
+# Firebase config — contains real project keys, never commit
+firebase-config.js
+
+# Firebase service account key — never commit
+serviceAccountKey.json

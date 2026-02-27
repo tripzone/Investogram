@@ -1,82 +1,110 @@
 #!/usr/bin/env python3
 """
-Simple proxy server for stock dashboard
-Fetches Yahoo Finance data server-side to avoid CORS issues
+Stock Dashboard server - Flask with Yahoo Finance proxy and user data API
 """
 
-import http.server
-import socketserver
-import urllib.request
-import urllib.parse
-import json
-from http import HTTPStatus
+import os
+import requests
+from flask import Flask, request, jsonify, send_from_directory
 
-PORT = 8000
+app = Flask(__name__, static_folder='.')
+PORT = int(os.environ.get('PORT', 8080))
 
-class StockProxyHandler(http.server.SimpleHTTPRequestHandler):
-    def do_GET(self):
-        # Parse the URL
-        parsed_path = urllib.parse.urlparse(self.path)
+# Firebase Admin SDK - initialized when running on GCP (uses Application Default Credentials)
+# Locally, set GOOGLE_APPLICATION_CREDENTIALS env var pointing to a service account key file
+db = None
+firebase_auth = None
 
-        # Check if this is a proxy request for Yahoo Finance
-        if parsed_path.path.startswith('/api/stock/'):
-            self.handle_stock_request(parsed_path)
-        else:
-            # Serve static files normally
-            super().do_GET()
 
-    def handle_stock_request(self, parsed_path):
-        try:
-            # Extract stock symbol from path: /api/stock/AAPL
-            symbol = parsed_path.path.split('/')[-1]
+def init_firebase():
+    global db, firebase_auth
+    try:
+        import firebase_admin
+        from firebase_admin import auth, firestore
+        if not firebase_admin._apps:
+            firebase_admin.initialize_app()
+        db = firestore.client()
+        firebase_auth = auth
+        print("Firebase initialized")
+    except Exception as e:
+        print(f"Firebase not initialized (no credentials): {e}")
 
-            # Get query parameters for range and interval
-            query_params = urllib.parse.parse_qs(parsed_path.query)
-            range_param = query_params.get('range', ['1mo'])[0]
-            interval_param = query_params.get('interval', ['1d'])[0]
 
-            # Fetch from Yahoo Finance
-            yahoo_url = f'https://query1.finance.yahoo.com/v8/finance/chart/{symbol}?range={range_param}&interval={interval_param}&indicators=quote&includeTimestamps=true'
+init_firebase()
 
-            req = urllib.request.Request(
-                yahoo_url,
-                headers={
-                    'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36'
-                }
-            )
 
-            with urllib.request.urlopen(req) as response:
-                data = response.read()
+def get_uid_from_request():
+    """Verify Firebase ID token from Authorization header, return uid or None."""
+    if firebase_auth is None:
+        return None
+    auth_header = request.headers.get('Authorization', '')
+    if not auth_header.startswith('Bearer '):
+        return None
+    token = auth_header[7:]
+    try:
+        decoded = firebase_auth.verify_id_token(token)
+        return decoded['uid']
+    except Exception:
+        return None
 
-            # Send response with CORS headers
-            self.send_response(HTTPStatus.OK)
-            self.send_header('Content-Type', 'application/json')
-            self.send_header('Access-Control-Allow-Origin', '*')
-            self.end_headers()
-            self.wfile.write(data)
 
-        except Exception as e:
-            # Send error response
-            self.send_response(HTTPStatus.INTERNAL_SERVER_ERROR)
-            self.send_header('Content-Type', 'application/json')
-            self.send_header('Access-Control-Allow-Origin', '*')
-            self.end_headers()
-            error_data = json.dumps({'error': str(e)}).encode('utf-8')
-            self.wfile.write(error_data)
+# ── Yahoo Finance proxy ────────────────────────────────────────────────────────
 
-    def end_headers(self):
-        # Add CORS headers to all responses
-        self.send_header('Access-Control-Allow-Origin', '*')
-        self.send_header('Access-Control-Allow-Methods', 'GET, OPTIONS')
-        self.send_header('Access-Control-Allow-Headers', 'Content-Type')
-        super().end_headers()
+@app.route('/api/stock/<symbol>')
+def stock_proxy(symbol):
+    range_param = request.args.get('range', '1mo')
+    interval_param = request.args.get('interval', '1d')
+    yahoo_url = (
+        f'https://query1.finance.yahoo.com/v8/finance/chart/{symbol}'
+        f'?range={range_param}&interval={interval_param}&indicators=quote&includeTimestamps=true'
+    )
+    headers = {
+        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36'
+    }
+    try:
+        resp = requests.get(yahoo_url, headers=headers, timeout=10)
+        return resp.content, resp.status_code, {'Content-Type': 'application/json'}
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+# ── User data API (requires Firebase auth) ─────────────────────────────────────
+
+@app.route('/api/user/data', methods=['GET'])
+def get_user_data():
+    if db is None:
+        return jsonify({'error': 'Database not configured'}), 503
+    uid = get_uid_from_request()
+    if not uid:
+        return jsonify({'error': 'Unauthorized'}), 401
+    doc = db.collection('users').document(uid).get()
+    return jsonify(doc.to_dict() if doc.exists else {})
+
+
+@app.route('/api/user/data', methods=['POST'])
+def save_user_data():
+    if db is None:
+        return jsonify({'error': 'Database not configured'}), 503
+    uid = get_uid_from_request()
+    if not uid:
+        return jsonify({'error': 'Unauthorized'}), 401
+    data = request.get_json()
+    if not data:
+        return jsonify({'error': 'No data provided'}), 400
+    db.collection('users').document(uid).set(data, merge=True)
+    return jsonify({'ok': True})
+
+
+# ── Static file serving ────────────────────────────────────────────────────────
+
+@app.route('/', defaults={'path': ''})
+@app.route('/<path:path>')
+def serve_static(path):
+    if path and os.path.exists(os.path.join(app.static_folder, path)):
+        return send_from_directory(app.static_folder, path)
+    return send_from_directory(app.static_folder, 'index.html')
+
 
 if __name__ == '__main__':
-    with socketserver.TCPServer(("", PORT), StockProxyHandler) as httpd:
-        print(f"🚀 Stock Dashboard server running at http://localhost:{PORT}")
-        print(f"📈 Dashboard: http://localhost:{PORT}")
-        print(f"Press Ctrl+C to stop")
-        try:
-            httpd.serve_forever()
-        except KeyboardInterrupt:
-            print("\n👋 Server stopped")
+    print(f"Starting server on port {PORT}")
+    app.run(host='0.0.0.0', port=PORT, debug=False)

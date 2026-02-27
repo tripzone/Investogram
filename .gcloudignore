@@ -1,0 +1,43 @@
+# Cloud Build ignore file — overrides .gitignore for gcloud deployments.
+# firebase-config.js is intentionally NOT listed here so it gets included
+# in the Docker image (Firebase web API keys are public client-side identifiers).
+# serviceAccountKey.json is excluded — Cloud Run uses ADC in production.
+
+.gcloudignore
+.git/
+.gitignore
+.claude/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Python artifacts
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+*.so
+
+# Node
+node_modules/
+
+# Secrets — never ship to Cloud Build
+serviceAccountKey.json
+.env
+
+# Dev-only files
+server.log
+*.log
+*.sh
+test-api.html
+debug-widths.js
+data/

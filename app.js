@@ -7,6 +7,7 @@ class StockDashboard {
         this.portfolioGraphs = this.loadPortfolioGraphs();
         this.charts = new Map();
         this.portfolioCharts = new Map();
+        this.graphCanvasMap = new Map(); // graphId -> canvasId mapping for sync
         this.candlestickChart = null;
         this.currentModalSymbol = null;
         this.currentModalRange = null;
@@ -84,9 +85,16 @@ class StockDashboard {
             },
             {
                 id: 'buys-sells-analysis',
-                title: 'Buys/Sells',
+                title: 'Buys/Sells by Price',
                 cardTitle: 'Stock Analysis: Buys/Sells by Price',
                 description: 'Transaction volumes at different price points',
+                heading: 'Stock Analysis'
+            },
+            {
+                id: 'buys-sells-by-date',
+                title: 'Buys/Sells by Date',
+                cardTitle: 'Stock Analysis: Buys/Sells by Date',
+                description: 'Transaction volumes over time',
                 heading: 'Stock Analysis'
             }
         ];
@@ -504,8 +512,15 @@ class StockDashboard {
 
         // Filter graphs as user types
         graphInput.addEventListener('input', (e) => {
-            const query = e.target.value.toLowerCase();
-            this.filterGraphs(query);
+            const query = e.target.value;
+            if (query.startsWith('--')) {
+                // Divider mode: hide dropdown, enable Add button
+                graphDropdown.classList.add('hidden');
+                addGraphBtn.disabled = false;
+                this.selectedGraph = null;
+                return;
+            }
+            this.filterGraphs(query.toLowerCase());
         });
 
         // Hide dropdown when clicking outside
@@ -522,7 +537,7 @@ class StockDashboard {
 
         // Enter key to add graph
         graphInput.addEventListener('keypress', (e) => {
-            if (e.key === 'Enter' && this.selectedGraph) {
+            if (e.key === 'Enter' && (this.selectedGraph || graphInput.value.startsWith('--'))) {
                 this.addGraph();
             }
         });
@@ -639,6 +654,23 @@ class StockDashboard {
     }
 
     addGraph() {
+        const graphInput = document.getElementById('graphInput');
+        const graphDropdown = document.getElementById('graphDropdown');
+        const addGraphBtn = document.getElementById('addGraphBtn');
+        const inputValue = graphInput.value.trim();
+
+        // Check if user wants to add a divider (with or without title)
+        if (inputValue.startsWith('--')) {
+            const title = inputValue.substring(2).trim();
+            const entry = { isDivider: true, title, id: `--${Date.now()}` };
+            this.portfolioGraphs.push(entry);
+            this.savePortfolioGraphs();
+            graphInput.value = '';
+            addGraphBtn.disabled = true;
+            this.renderPortfolioGraphs();
+            return;
+        }
+
         if (!this.selectedGraph) return;
 
         // Check if already added
@@ -652,15 +684,11 @@ class StockDashboard {
             return;
         }
 
-        // Add to list with default width of 3 (full width)
-        this.portfolioGraphs.push({ id: this.selectedGraph.id, width: 3 });
+        // Add to list with default width of 6 (full width)
+        this.portfolioGraphs.push({ id: this.selectedGraph.id, width: 6 });
         this.savePortfolioGraphs();
 
         // Clear selection
-        const graphInput = document.getElementById('graphInput');
-        const graphDropdown = document.getElementById('graphDropdown');
-        const addGraphBtn = document.getElementById('addGraphBtn');
-
         graphInput.value = '';
         graphDropdown.classList.add('hidden');
         addGraphBtn.disabled = true;
@@ -676,10 +704,17 @@ class StockDashboard {
 
         const parsed = JSON.parse(saved);
         // Migrate old format (array of strings) to new format (array of objects)
-        // Default to width 3 (full width) for better backward compatibility
+        // Default to width 6 (full width) for better backward compatibility
         return parsed.map(item => {
+            if (typeof item === 'object' && item.isDivider) {
+                return item; // Pass through divider entries as-is
+            }
             if (typeof item === 'string') {
-                return { id: item, width: 3 };
+                return { id: item, width: 6 };
+            }
+            // Migrate old 3-column scale to new 6-column scale
+            if (typeof item === 'object' && item.width <= 3) {
+                return { ...item, width: item.width * 2 };
             }
             return item;
         });
@@ -695,6 +730,7 @@ class StockDashboard {
         // Destroy existing charts
         this.portfolioCharts.forEach(chart => chart.destroy());
         this.portfolioCharts.clear();
+        this.graphCanvasMap.clear();
 
         if (this.portfolioGraphs.length === 0) {
             portfolioView.innerHTML = '<div class="empty-state"><p>No graphs added yet. Add your first graph above!</p></div>';
@@ -704,6 +740,11 @@ class StockDashboard {
         portfolioView.innerHTML = '';
 
         this.portfolioGraphs.forEach((graphEntry, index) => {
+            if (graphEntry.isDivider) {
+                this.renderPortfolioDivider(graphEntry);
+                return;
+            }
+
             const graphId = typeof graphEntry === 'string' ? graphEntry : graphEntry.id;
             const width = typeof graphEntry === 'string' ? 1 : (graphEntry.width || 1);
 
@@ -722,6 +763,7 @@ class StockDashboard {
             graphCard.style.gridColumn = `span ${width}`;
 
             const canvasId = `portfolio-chart-${index}`;
+            this.graphCanvasMap.set(graphId, canvasId);
 
             // Add timeframe buttons for market activity graphs
             const isMarketActivityGraph = graphId === 'market-activity' || graphId === 'market-activity-by-ticker';
@@ -733,8 +775,8 @@ class StockDashboard {
                 </div>
             ` : '';
 
-            // Add ticker selector for buys-sells-analysis graph
-            const tickerSelector = graphId === 'buys-sells-analysis' ? `
+            // Add ticker selector for buys-sells graphs
+            const tickerSelector = (graphId === 'buys-sells-analysis' || graphId === 'buys-sells-by-date') ? `
                 <div class="ticker-selector-wrapper">
                     <input
                         type="text"
@@ -785,9 +827,9 @@ class StockDashboard {
                 });
             }
 
-            // Add ticker selector listeners for buys-sells-analysis graph
-            if (graphId === 'buys-sells-analysis') {
-                this.setupTickerSelector(graphCard, canvasId);
+            // Add ticker selector listeners for buys-sells graphs
+            if (graphId === 'buys-sells-analysis' || graphId === 'buys-sells-by-date') {
+                this.setupTickerSelector(graphCard, canvasId, graphId);
             }
 
             // Add resize functionality
@@ -807,6 +849,47 @@ class StockDashboard {
                 this.renderGraph(graphId, canvasId);
             }, 0);
         });
+    }
+
+    renderPortfolioDivider(entry) {
+        const portfolioView = document.getElementById('portfolioView');
+        const divider = document.createElement('div');
+        divider.className = 'portfolio-divider';
+        if (entry.title) divider.classList.add('has-title');
+        divider.draggable = true;
+        divider.dataset.graphId = entry.id;
+        divider.style.gridColumn = 'span 6';
+
+        if (entry.title) {
+            divider.innerHTML = `
+                <div class="divider-content">
+                    <div class="divider-line"></div>
+                    <span class="divider-title">${entry.title}</span>
+                    <div class="divider-line"></div>
+                </div>
+                <button class="divider-remove-btn">×</button>
+            `;
+        } else {
+            divider.innerHTML = `
+                <div class="divider-line"></div>
+                <button class="divider-remove-btn">×</button>
+            `;
+        }
+
+        const removeBtn = divider.querySelector('.divider-remove-btn');
+        removeBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            this.removeGraph(entry.id);
+        });
+
+        divider.addEventListener('dragstart', (e) => this.handleGraphDragStart(e));
+        divider.addEventListener('dragover', (e) => this.handleGraphDragOver(e));
+        divider.addEventListener('drop', (e) => this.handleGraphDrop(e));
+        divider.addEventListener('dragend', (e) => this.handleGraphDragEnd(e));
+        divider.addEventListener('dragenter', (e) => this.handleGraphDragEnter(e));
+        divider.addEventListener('dragleave', (e) => this.handleGraphDragLeave(e));
+
+        portfolioView.appendChild(divider);
     }
 
     async renderGraph(graphId, canvasId) {
@@ -829,6 +912,9 @@ class StockDashboard {
                 break;
             case 'buys-sells-analysis':
                 await this.renderBuySellAnalysis(canvasId);
+                break;
+            case 'buys-sells-by-date':
+                await this.renderBuySellsByDate(canvasId);
                 break;
             default:
                 // Show placeholder for unimplemented graphs
@@ -1819,21 +1905,23 @@ class StockDashboard {
         const datasets = [];
         const tickerArray = Array.from(allTickers).sort();
 
-        // Define color palette (same as asset allocation)
-        const colorPalette = [
+        // Green/teal side of the palette for buys, orange/red side for sells
+        const greenPalette = [
             '#1E4D5C', // Dark teal
             '#2A6B7D', // Medium teal
             '#3D8A9E', // Bright teal
             '#5FA89D', // Seafoam
             '#7FB685', // Sage green
             '#9FBD6E', // Olive
+        ];
+        const redPalette = [
             '#C5B358', // Gold
             '#D9A54A', // Mustard
             '#E89447', // Orange gold
             '#EE7F43', // Tangerine
             '#F16940', // Bright orange
             '#D95944', // Rust orange
-            '#C04848'  // Rust red
+            '#C04848', // Rust red
         ];
 
         tickerArray.forEach((ticker, index) => {
@@ -1841,16 +1929,23 @@ class StockDashboard {
                 return tickerMonthData[ticker][month.key] || 0;
             });
 
-            // Use interpolated color from palette
-            const color = this.interpolateColor(colorPalette, index, tickerArray.length);
+            const total = Math.max(tickerArray.length, 2);
+            const greenColor = this.interpolateColor(greenPalette, index, total);
+            const redColor = this.interpolateColor(redPalette, index, total);
 
             datasets.push({
                 label: ticker,
                 data: data,
-                backgroundColor: color,
-                borderColor: color,
+                backgroundColor: function(context) {
+                    const value = context.parsed?.y ?? 0;
+                    return value >= 0 ? greenColor : redColor;
+                },
+                borderColor: function(context) {
+                    const value = context.parsed?.y ?? 0;
+                    return value >= 0 ? greenColor : redColor;
+                },
                 borderWidth: 1,
-                stack: 'stack0' // All datasets in same stack
+                stack: 'stack0'
             });
         });
 
@@ -1954,7 +2049,7 @@ class StockDashboard {
         this.portfolioCharts.set(canvasId, chart);
     }
 
-    setupTickerSelector(graphCard, canvasId) {
+    setupTickerSelector(graphCard, canvasId, graphId) {
         const input = graphCard.querySelector('.ticker-selector-input');
         const dropdown = graphCard.querySelector('.ticker-dropdown');
         const tickerList = graphCard.querySelector('.ticker-list');
@@ -1973,14 +2068,14 @@ class StockDashboard {
 
         // Show dropdown on focus
         input.addEventListener('focus', () => {
-            this.showTickerDropdown(input, dropdown, tickerList, sortedTickers, canvasId);
+            this.showTickerDropdown(input, dropdown, tickerList, sortedTickers, canvasId, graphId);
         });
 
         // Filter tickers as user types
         input.addEventListener('input', (e) => {
             const query = e.target.value.toLowerCase();
             const filtered = sortedTickers.filter(ticker => ticker.toLowerCase().includes(query));
-            this.showTickerDropdown(input, dropdown, tickerList, filtered, canvasId);
+            this.showTickerDropdown(input, dropdown, tickerList, filtered, canvasId, graphId);
         });
 
         // Hide dropdown when clicking outside
@@ -1991,7 +2086,7 @@ class StockDashboard {
         });
     }
 
-    showTickerDropdown(input, dropdown, tickerList, tickers, canvasId) {
+    showTickerDropdown(input, dropdown, tickerList, tickers, canvasId, graphId) {
         tickerList.innerHTML = '';
         dropdown.classList.remove('hidden');
 
@@ -2007,7 +2102,26 @@ class StockDashboard {
             item.addEventListener('click', () => {
                 input.value = ticker;
                 dropdown.classList.add('hidden');
-                this.renderBuySellAnalysis(canvasId, ticker);
+                if (graphId === 'buys-sells-by-date') {
+                    this.renderBuySellsByDate(canvasId, ticker);
+                } else {
+                    this.renderBuySellAnalysis(canvasId, ticker);
+                }
+                // Sync the paired graph
+                const pairedGraphId = graphId === 'buys-sells-by-date' ? 'buys-sells-analysis' : 'buys-sells-by-date';
+                const pairedCanvasId = this.graphCanvasMap.get(pairedGraphId);
+                if (pairedCanvasId) {
+                    const pairedCard = document.getElementById(`portfolio-graph-${pairedGraphId}`);
+                    if (pairedCard) {
+                        const pairedInput = pairedCard.querySelector('.ticker-selector-input');
+                        if (pairedInput) pairedInput.value = ticker;
+                    }
+                    if (pairedGraphId === 'buys-sells-by-date') {
+                        this.renderBuySellsByDate(pairedCanvasId, ticker);
+                    } else {
+                        this.renderBuySellAnalysis(pairedCanvasId, ticker);
+                    }
+                }
             });
             tickerList.appendChild(item);
         });
@@ -2115,7 +2229,6 @@ class StockDashboard {
                 ]
             },
             options: {
-                indexAxis: 'y', // Horizontal bars
                 responsive: true,
                 maintainAspectRatio: false,
                 animation: false,
@@ -2145,7 +2258,7 @@ class StockDashboard {
                                 return `Price: ${context[0].label}`;
                             },
                             label: function(context) {
-                                const value = Math.abs(context.parsed.x);
+                                const value = Math.abs(context.parsed.y);
                                 const type = context.dataset.label;
                                 return `${type}: ${value.toFixed(2)} shares`;
                             }
@@ -2160,9 +2273,9 @@ class StockDashboard {
                         },
                         ticks: {
                             color: '#999',
-                            callback: function(value) {
-                                return Math.abs(value);
-                            }
+                            maxRotation: 45,
+                            autoSkip: true,
+                            maxTicksLimit: 20
                         }
                     },
                     y: {
@@ -2171,7 +2284,16 @@ class StockDashboard {
                             drawBorder: false
                         },
                         ticks: {
-                            color: '#999'
+                            color: '#999',
+                            callback: function(value) {
+                                return Math.abs(value);
+                            }
+                        },
+                        title: {
+                            display: true,
+                            text: 'Shares',
+                            color: '#666',
+                            font: { size: 11 }
                         }
                     }
                 }
@@ -2179,6 +2301,214 @@ class StockDashboard {
         });
 
         // Store chart instance
+        this.portfolioCharts.set(canvasId, chart);
+    }
+
+    async renderBuySellsByDate(canvasId, ticker = null) {
+        const tradesData = this.loadPortfolioData('trades');
+        const canvas = document.getElementById(canvasId);
+
+        if (!canvas) return;
+
+        // Destroy existing chart if it exists
+        const existingChart = this.portfolioCharts.get(canvasId);
+        if (existingChart) {
+            existingChart.destroy();
+            this.portfolioCharts.delete(canvasId);
+        }
+
+        if (!tradesData || tradesData.length === 0) {
+            const ctx = canvas.getContext('2d');
+            ctx.fillStyle = '#666';
+            ctx.font = '13px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto';
+            ctx.textAlign = 'center';
+            ctx.fillText('No trades data available. Upload trades data to see this chart.', canvas.width / 2, canvas.height / 2);
+            return;
+        }
+
+        if (!ticker) {
+            const ctx = canvas.getContext('2d');
+            ctx.fillStyle = '#666';
+            ctx.font = '13px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto';
+            ctx.textAlign = 'center';
+            ctx.fillText('Select a ticker to view buy/sell analysis', canvas.width / 2, canvas.height / 2);
+            return;
+        }
+
+        // Process trades for selected ticker, grouped by date
+        // dateData stores quantity and cost for weighted-average price calculation
+        const dateData = {}; // {dateStr: {buys, sells, buyCost, sellCost}}
+        let firstTradeDate = null;
+
+        tradesData.forEach(trade => {
+            if (trade.symbol !== ticker) return;
+
+            const type = trade.type?.toLowerCase();
+            if (type === 'dividend') return;
+
+            const quantity = parseFloat(trade.quantity);
+            if (isNaN(quantity) || quantity === 0) return;
+
+            const date = new Date(trade.transaction_date);
+            if (isNaN(date.getTime())) return;
+
+            const dateStr = date.toISOString().slice(0, 10); // YYYY-MM-DD
+
+            if (!firstTradeDate || date < firstTradeDate) {
+                firstTradeDate = date;
+            }
+
+            if (!dateData[dateStr]) {
+                dateData[dateStr] = { buys: 0, sells: 0, buyCost: 0, sellCost: 0 };
+            }
+
+            if (type === 'trade' || type === 'buy' || type === 'sell') {
+                const price = parseFloat(trade.price) || 0;
+                const absQty = Math.abs(quantity);
+                if (quantity > 0 || type === 'buy') {
+                    dateData[dateStr].buys += absQty;
+                    dateData[dateStr].buyCost += absQty * price;
+                } else {
+                    dateData[dateStr].sells += absQty;
+                    dateData[dateStr].sellCost += absQty * price;
+                }
+            }
+        });
+
+        if (!firstTradeDate) {
+            const ctx = canvas.getContext('2d');
+            ctx.fillStyle = '#666';
+            ctx.font = '13px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto';
+            ctx.textAlign = 'center';
+            ctx.fillText(`No trades found for ${ticker}`, canvas.width / 2, canvas.height / 2);
+            return;
+        }
+
+        // Build label array: all dates from first trade to today
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        const startDate = new Date(firstTradeDate);
+        startDate.setHours(0, 0, 0, 0);
+
+        // Only include dates that have actual trades to avoid a huge sparse axis
+        const activeDates = Object.keys(dateData).sort();
+        // Always include today as the right boundary label (no bar, just extends axis)
+        const todayStr = today.toISOString().slice(0, 10);
+
+        const labels = activeDates;
+        const buyData = activeDates.map(d => dateData[d].buys);
+        const sellData = activeDates.map(d => -dateData[d].sells); // negative for symmetry
+        const buyAvgPrices = activeDates.map(d => {
+            const d_ = dateData[d];
+            return d_.buys > 0 ? d_.buyCost / d_.buys : null;
+        });
+        const sellAvgPrices = activeDates.map(d => {
+            const d_ = dateData[d];
+            return d_.sells > 0 ? d_.sellCost / d_.sells : null;
+        });
+
+        const showValues = this.showValues;
+
+        const chart = new Chart(canvas.getContext('2d'), {
+            type: 'bar',
+            data: {
+                labels: labels,
+                datasets: [
+                    {
+                        label: 'Buys',
+                        data: buyData,
+                        backgroundColor: 'rgba(61, 138, 158, 0.7)',
+                        borderColor: 'rgba(61, 138, 158, 1)',
+                        borderWidth: 1
+                    },
+                    {
+                        label: 'Sells',
+                        data: sellData,
+                        backgroundColor: 'rgba(192, 72, 72, 0.7)',
+                        borderColor: 'rgba(192, 72, 72, 1)',
+                        borderWidth: 1
+                    }
+                ]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                animation: false,
+                plugins: {
+                    legend: {
+                        display: true,
+                        position: 'top',
+                        align: 'end',
+                        labels: {
+                            color: '#999',
+                            font: { size: 11 },
+                            boxWidth: 20,
+                            padding: 12
+                        }
+                    },
+                    tooltip: {
+                        backgroundColor: 'rgba(0, 0, 0, 0.9)',
+                        padding: 12,
+                        titleColor: '#fff',
+                        bodyColor: '#fff',
+                        borderColor: '#444',
+                        borderWidth: 1,
+                        callbacks: {
+                            title: function(context) {
+                                return `Date: ${context[0].label}`;
+                            },
+                            label: function(context) {
+                                const value = Math.abs(context.parsed.y);
+                                const type = context.dataset.label;
+                                const i = context.dataIndex;
+                                const avgPrice = type === 'Buys' ? buyAvgPrices[i] : sellAvgPrices[i];
+                                const priceStr = avgPrice != null ? ` @ $${avgPrice.toFixed(2)}` : '';
+                                return `${type}: ${value.toFixed(2)} shares${priceStr}`;
+                            }
+                        }
+                    }
+                },
+                scales: {
+                    x: {
+                        grid: {
+                            color: '#2a2a2a',
+                            drawBorder: false
+                        },
+                        ticks: {
+                            color: '#999',
+                            maxRotation: 45,
+                            autoSkip: true,
+                            maxTicksLimit: 20
+                        },
+                        title: {
+                            display: true,
+                            text: `${startDate.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' })} → ${today.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' })}`,
+                            color: '#666',
+                            font: { size: 11 }
+                        }
+                    },
+                    y: {
+                        grid: {
+                            color: '#2a2a2a',
+                            drawBorder: false
+                        },
+                        ticks: {
+                            color: '#999',
+                            callback: function(value) {
+                                return Math.abs(value);
+                            }
+                        },
+                        title: {
+                            display: true,
+                            text: 'Shares',
+                            color: '#666',
+                            font: { size: 11 }
+                        }
+                    }
+                }
+            }
+        });
+
         this.portfolioCharts.set(canvasId, chart);
     }
 
@@ -2210,14 +2540,14 @@ class StockDashboard {
     }
 
     handleGraphDragEnter(e) {
-        const card = e.target.closest('.portfolio-graph-card');
+        const card = e.target.closest('.portfolio-graph-card, .portfolio-divider');
         if (card && card !== this.draggedElement) {
             card.classList.add('drag-over');
         }
     }
 
     handleGraphDragLeave(e) {
-        const card = e.target.closest('.portfolio-graph-card');
+        const card = e.target.closest('.portfolio-graph-card, .portfolio-divider');
         // Only remove the class if we're actually leaving the card (not just entering a child)
         if (card && !card.contains(e.relatedTarget)) {
             card.classList.remove('drag-over');
@@ -2229,7 +2559,7 @@ class StockDashboard {
             e.stopPropagation();
         }
 
-        const targetCard = e.target.closest('.portfolio-graph-card');
+        const targetCard = e.target.closest('.portfolio-graph-card, .portfolio-divider');
 
         if (this.draggedElement !== targetCard && targetCard) {
             const portfolioView = document.getElementById('portfolioView');
@@ -2276,8 +2606,8 @@ class StockDashboard {
 
     handleGraphDragEnd(e) {
         e.target.classList.remove('dragging');
-        // Remove drag-over class from all graph cards
-        document.querySelectorAll('.portfolio-graph-card').forEach(card => {
+        // Remove drag-over class from all graph cards and dividers
+        document.querySelectorAll('.portfolio-graph-card, .portfolio-divider').forEach(card => {
             card.classList.remove('drag-over');
         });
     }
@@ -3029,14 +3359,16 @@ class StockDashboard {
     }
 
     handleDragEnter(e) {
-        if (e.target.classList.contains('stock-card') || e.target.classList.contains('stock-divider')) {
-            e.target.classList.add('drag-over');
+        const card = e.target.closest('.stock-card, .stock-divider');
+        if (card && card !== this.draggedElement) {
+            card.classList.add('drag-over');
         }
     }
 
     handleDragLeave(e) {
-        if (e.target.classList.contains('stock-card') || e.target.classList.contains('stock-divider')) {
-            e.target.classList.remove('drag-over');
+        const card = e.target.closest('.stock-card, .stock-divider');
+        if (card && !card.contains(e.relatedTarget)) {
+            card.classList.remove('drag-over');
         }
     }
 
@@ -3045,14 +3377,14 @@ class StockDashboard {
             e.stopPropagation();
         }
 
-        const isDraggableTarget = e.target.classList.contains('stock-card') || e.target.classList.contains('stock-divider');
+        const targetCard = e.target.closest('.stock-card, .stock-divider');
 
-        if (this.draggedElement !== e.target && isDraggableTarget) {
+        if (this.draggedElement !== targetCard && targetCard) {
             const grid = document.getElementById('stockGrid');
 
             // Get symbols
             const draggedSymbol = this.draggedElement.dataset.symbol;
-            const targetSymbol = e.target.dataset.symbol;
+            const targetSymbol = targetCard.dataset.symbol;
 
             // Find entries in stockList (need to find by symbol, not exact match)
             const draggedIndex = this.stockList.findIndex(entry =>
@@ -3072,10 +3404,10 @@ class StockDashboard {
             // Just reorder the DOM elements without re-rendering
             if (draggedIndex < targetIndex) {
                 // Moving forward - insert after target
-                e.target.parentNode.insertBefore(this.draggedElement, e.target.nextSibling);
+                targetCard.parentNode.insertBefore(this.draggedElement, targetCard.nextSibling);
             } else {
                 // Moving backward - insert before target
-                e.target.parentNode.insertBefore(this.draggedElement, e.target);
+                targetCard.parentNode.insertBefore(this.draggedElement, targetCard);
             }
 
             // Update data-index attributes for all dividers
@@ -3085,7 +3417,9 @@ class StockDashboard {
             this.saveStockList();
         }
 
-        e.target.classList.remove('drag-over');
+        if (targetCard) {
+            targetCard.classList.remove('drag-over');
+        }
         return false;
     }
 
@@ -3153,13 +3487,13 @@ class StockDashboard {
             const deltaX = e.clientX - startX;
             const newWidth = startWidth + deltaX;
 
-            // Calculate the width multiplier based on 1/3 width increments
-            // baseWidth is full container, so each column is baseWidth/3
-            const columnWidth = baseWidth / 3;
+            // Calculate the width multiplier based on 1/6 width increments
+            // baseWidth is full container, so each column is baseWidth/6
+            const columnWidth = baseWidth / 6;
             const multiplier = Math.max(1, Math.round(newWidth / columnWidth));
 
-            // Limit to reasonable range (1 to 3 columns)
-            const limitedMultiplier = Math.min(3, multiplier);
+            // Limit to reasonable range (1 to 6 columns)
+            const limitedMultiplier = Math.min(6, multiplier);
 
             // Update grid column span
             card.style.gridColumn = `span ${limitedMultiplier}`;
