@@ -3066,7 +3066,16 @@ class StockDashboard {
         }
     }
 
-    renderAllStocks() {
+    async renderAllStocks() {
+        // Batch-prefetch all symbols in parallel before rendering cards
+        const symbols = this.stockList
+            .map(e => this.parseStockEntry(e))
+            .filter(p => !p.isDivider)
+            .map(p => p.symbol);
+        await stockAPI.prefetchStockData(symbols);
+
+        // Clear and rebuild the grid after prefetch so concurrent calls don't
+        // both append their tiles to the same (non-cleared) grid.
         const grid = document.getElementById('stockGrid');
         grid.innerHTML = '';
 

@@ -4,7 +4,7 @@ class StockAPI {
     constructor() {
         this.requestQueue = [];
         this.isProcessing = false;
-        this.requestDelay = 500; // 500ms between requests to be respectful
+        this.requestDelay = 0; // No delay needed — rate limiting handled server-side
         this.cache = new Map(); // Cache for 5 minutes
         this.cacheTimeout = 5 * 60 * 1000; // 5 minutes
     }
@@ -122,27 +122,28 @@ class StockAPI {
             }
         }
 
-        // Second pass: fetch only cache misses, queued with rate limiting
-        const requests = toFetch.map(symbol =>
-            this.queueRequest(async () => {
-                const url = `/api/stock/${symbol}?range=1mo&interval=1d`;
-                const data = await this.fetchAPI(url);
-
-                if (!data.chart?.result?.[0]) {
-                    throw new Error(`No data for ${symbol}`);
+        // Second pass: fetch all cache misses in one batch request
+        if (toFetch.length > 0) {
+            try {
+                const batchData = await this.fetchBatch(toFetch, '1mo', '1d');
+                for (const symbol of toFetch) {
+                    const data = batchData[symbol.toUpperCase()];
+                    if (data?.chart?.result?.[0]) {
+                        const meta = data.chart.result[0].meta;
+                        this.setCache(`/api/stock/${symbol}?range=1mo&interval=1d`, data);
+                        results.set(symbol.toUpperCase(), {
+                            currentPrice: meta.regularMarketPrice,
+                            currency: meta.currency || 'USD'
+                        });
+                    } else {
+                        console.error(`Failed to fetch price for ${symbol}`);
+                    }
                 }
+            } catch (err) {
+                console.error('Batch price fetch failed:', err);
+            }
+        }
 
-                const meta = data.chart.result[0].meta;
-                results.set(symbol.toUpperCase(), {
-                    currentPrice: meta.regularMarketPrice,
-                    currency: meta.currency || 'USD'
-                });
-            }).catch(err => {
-                console.error(`Failed to fetch price for ${symbol}:`, err);
-            })
-        );
-
-        await Promise.all(requests);
         return results;
     }
 
@@ -159,6 +160,32 @@ class StockAPI {
             ]);
             return { daily: dailyData, weekly: weeklyData };
         });
+    }
+
+    // Fetch one range/interval for multiple symbols in a single request.
+    // Populates the same cache keys used by fetchAPI, so subsequent getStockData()
+    // calls for these symbols will be instant cache hits.
+    async fetchBatch(symbols, range, interval) {
+        if (!symbols.length) return {};
+        const url = `/api/stocks/batch?symbols=${symbols.join(',')}&range=${range}&interval=${interval}`;
+        const resp = await fetch(url);
+        if (!resp.ok) throw new Error(`Batch fetch failed: ${resp.status}`);
+        return resp.json();
+    }
+
+    // Warm the cache for all symbols (daily + weekly) with two parallel batch requests.
+    // Call this before rendering cards so individual getStockData() calls hit the cache.
+    async prefetchStockData(symbols) {
+        if (!symbols.length) return;
+        const [dailyData, weeklyData] = await Promise.all([
+            this.fetchBatch(symbols, '1mo', '1d'),
+            this.fetchBatch(symbols, '4y', '1wk')
+        ]);
+        for (const symbol of symbols) {
+            const key = symbol.toUpperCase();
+            if (dailyData[key]) this.setCache(`/api/stock/${symbol}?range=1mo&interval=1d`, dailyData[key]);
+            if (weeklyData[key]) this.setCache(`/api/stock/${symbol}?range=4y&interval=1wk`, weeklyData[key]);
+        }
     }
 
     async getStockData(symbol) {
