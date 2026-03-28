@@ -19,6 +19,7 @@ class StockDashboard {
         this.resizing = null; // Track active resize operation
         this.latestPrices = null; // Map<symbol, { currentPrice, currency }>
         this.latestPricesState = 'idle'; // 'idle' | 'loading' | 'active' | 'error'
+        this.portfolioExcludedSymbols = this.loadPortfolioExcludedSymbols();
         this.availableGraphs = [
             {
                 id: 'asset-allocation',
@@ -420,6 +421,122 @@ class StockDashboard {
         return saved ? JSON.parse(saved) : null;
     }
 
+    loadPortfolioExcludedSymbols() {
+        const saved = localStorage.getItem('portfolio_excluded_symbols');
+        if (!saved) return new Set();
+        try { return new Set(JSON.parse(saved)); } catch { return new Set(); }
+    }
+
+    savePortfolioExcludedSymbols() {
+        localStorage.setItem('portfolio_excluded_symbols', JSON.stringify([...this.portfolioExcludedSymbols]));
+    }
+
+    getPortfolioSymbols() {
+        const symbols = new Set();
+        const positions = this.loadPortfolioData('positions');
+        if (positions) positions.forEach(p => { if (p.symbol) symbols.add(p.symbol.toUpperCase()); });
+        const trades = this.loadPortfolioData('trades');
+        if (trades) trades.forEach(t => { if (t.symbol && t.type?.toLowerCase() !== 'dividend') symbols.add(t.symbol.toUpperCase()); });
+        return [...symbols].sort();
+    }
+
+    buildExcludeFilterBar() {
+        const symbols = this.getPortfolioSymbols();
+        const bar = document.createElement('div');
+        bar.id = 'portfolio-filter-bar';
+        bar.className = 'portfolio-filter-bar';
+        if (symbols.length === 0) return bar;
+
+        const excludedCount = symbols.filter(s => this.portfolioExcludedSymbols.has(s)).length;
+        const allSelected = excludedCount === 0;
+
+        const itemHTML = (label, checked, cls, dataAttr = '') =>
+            `<div class="portfolio-filter-item ${cls}" ${dataAttr}>
+                <span class="pf-check">${checked ? '✓' : ''}</span>
+                <span class="pf-label">${label}</span>
+            </div>`;
+
+        bar.innerHTML = `
+            <div class="portfolio-filter-wrapper">
+                <button class="portfolio-filter-btn${excludedCount > 0 ? ' has-exclusions' : ''}">
+                    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                        <line x1="4" y1="6" x2="20" y2="6"/><line x1="8" y1="12" x2="16" y2="12"/><line x1="11" y1="18" x2="13" y2="18"/>
+                    </svg>
+                    <span class="pf-btn-label">${excludedCount > 0 ? `Filter (${excludedCount} hidden)` : 'Filter'}</span>
+                </button>
+                <div class="portfolio-filter-dropdown hidden">
+                    <div class="portfolio-filter-select-all-row">
+                        ${itemHTML('Select All', allSelected, 'portfolio-filter-select-all')}
+                    </div>
+                    <div class="portfolio-filter-symbol-list">
+                        ${symbols.map(s => itemHTML(s, !this.portfolioExcludedSymbols.has(s), 'portfolio-filter-symbol-item', `data-symbol="${s}"`)).join('')}
+                    </div>
+                </div>
+            </div>
+        `;
+
+        const btn = bar.querySelector('.portfolio-filter-btn');
+        const btnLabel = bar.querySelector('.pf-btn-label');
+        const dropdown = bar.querySelector('.portfolio-filter-dropdown');
+        const selectAllItem = bar.querySelector('.portfolio-filter-select-all');
+
+        const updateBtn = () => {
+            const n = symbols.filter(s => this.portfolioExcludedSymbols.has(s)).length;
+            btnLabel.textContent = n > 0 ? `Filter (${n} hidden)` : 'Filter';
+            btn.classList.toggle('has-exclusions', n > 0);
+            selectAllItem.querySelector('.pf-check').textContent =
+                this.portfolioExcludedSymbols.size === 0 ? '✓' : '';
+        };
+
+        btn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            dropdown.classList.toggle('hidden');
+            if (!dropdown.classList.contains('hidden')) {
+                const closeOnOutside = (ev) => {
+                    if (!bar.contains(ev.target)) {
+                        dropdown.classList.add('hidden');
+                        document.removeEventListener('click', closeOnOutside);
+                    }
+                };
+                setTimeout(() => document.addEventListener('click', closeOnOutside), 0);
+            }
+        });
+
+        selectAllItem.addEventListener('click', () => {
+            const isChecked = selectAllItem.querySelector('.pf-check').textContent === '✓';
+            if (isChecked) {
+                symbols.forEach(s => this.portfolioExcludedSymbols.add(s));
+                bar.querySelectorAll('.portfolio-filter-symbol-item .pf-check').forEach(c => { c.textContent = ''; });
+            } else {
+                this.portfolioExcludedSymbols.clear();
+                bar.querySelectorAll('.portfolio-filter-symbol-item .pf-check').forEach(c => { c.textContent = '✓'; });
+            }
+            updateBtn();
+            this.savePortfolioExcludedSymbols();
+            this.rerenderPortfolioCharts();
+        });
+
+        bar.querySelectorAll('.portfolio-filter-symbol-item').forEach(item => {
+            item.addEventListener('click', () => {
+                const symbol = item.dataset.symbol;
+                const checkEl = item.querySelector('.pf-check');
+                const isChecked = checkEl.textContent === '✓';
+                if (isChecked) {
+                    this.portfolioExcludedSymbols.add(symbol);
+                    checkEl.textContent = '';
+                } else {
+                    this.portfolioExcludedSymbols.delete(symbol);
+                    checkEl.textContent = '✓';
+                }
+                updateBtn();
+                this.savePortfolioExcludedSymbols();
+                this.rerenderPortfolioCharts();
+            });
+        });
+
+        return bar;
+    }
+
     saveCategoriesData(data, columns) {
         localStorage.setItem('portfolio_categories', JSON.stringify(data));
         localStorage.setItem('portfolio_categories_columns', JSON.stringify(columns));
@@ -744,6 +861,9 @@ class StockDashboard {
 
         portfolioView.innerHTML = '';
 
+        // Insert filter bar
+        portfolioView.appendChild(this.buildExcludeFilterBar());
+
         this.portfolioGraphs.forEach((graphEntry, index) => {
             if (graphEntry.isDivider) {
                 this.renderPortfolioDivider(graphEntry);
@@ -950,6 +1070,32 @@ class StockDashboard {
         }
     }
 
+    rerenderPortfolioCharts() {
+        this.portfolioCharts.forEach(chart => chart.destroy());
+        this.portfolioCharts.clear();
+
+        this.portfolioGraphs.forEach((graphEntry, index) => {
+            if (graphEntry.isDivider) return;
+            const graphId = typeof graphEntry === 'string' ? graphEntry : graphEntry.id;
+            const canvasId = `portfolio-chart-${index}`;
+
+            // Preserve active timeframe for market activity graphs
+            const graphCard = document.getElementById(`portfolio-graph-${graphId}`);
+            const activeTimeframeBtn = graphCard?.querySelector('.timeframe-btn.active');
+            const timeframe = activeTimeframeBtn?.dataset.timeframe || '1y';
+
+            setTimeout(() => {
+                if (graphId === 'market-activity') {
+                    this.renderMarketActivity(canvasId, timeframe);
+                } else if (graphId === 'market-activity-by-ticker') {
+                    this.renderMarketActivityByTicker(canvasId, timeframe);
+                } else {
+                    this.renderGraph(graphId, canvasId);
+                }
+            }, 0);
+        });
+    }
+
     async handleAllocationRefresh() {
         // Toggle off if already showing latest prices
         if (this.latestPricesState === 'active') {
@@ -1090,12 +1236,15 @@ class StockDashboard {
     }
 
     async renderAssetAllocation(canvasId) {
-        const positionsData = this.loadPortfolioData('positions');
+        const rawPositions = this.loadPortfolioData('positions');
+        const positionsData = rawPositions
+            ? rawPositions.filter(p => !this.portfolioExcludedSymbols.has(p.symbol?.toUpperCase()))
+            : null;
         const canvas = document.getElementById(canvasId);
 
         if (!canvas) return;
 
-        if (!positionsData || positionsData.length === 0) {
+        if (!rawPositions || rawPositions.length === 0) {
             const ctx = canvas.getContext('2d');
             ctx.fillStyle = '#666';
             ctx.font = '13px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto';
@@ -1363,14 +1512,17 @@ class StockDashboard {
     }
 
     async renderCategoryAllocation(canvasId, categoryName) {
-        const positionsData = this.loadPortfolioData('positions');
+        const rawPositions = this.loadPortfolioData('positions');
+        const positionsData = rawPositions
+            ? rawPositions.filter(p => !this.portfolioExcludedSymbols.has(p.symbol?.toUpperCase()))
+            : null;
         const categoriesData = this.loadCategoriesData();
         const canvas = document.getElementById(canvasId);
 
         if (!canvas) return;
 
         // Validate data availability
-        if (!positionsData || positionsData.length === 0) {
+        if (!rawPositions || rawPositions.length === 0) {
             this.showGraphMessage(canvas, 'No positions data available. Upload positions data to see this chart.');
             return;
         }
@@ -1645,7 +1797,10 @@ class StockDashboard {
     }
 
     async renderMarketActivity(canvasId, timeframe = '1y') {
-        const tradesData = this.loadPortfolioData('trades');
+        const rawTrades = this.loadPortfolioData('trades');
+        const tradesData = rawTrades
+            ? rawTrades.filter(t => !this.portfolioExcludedSymbols.has(t.symbol?.toUpperCase()))
+            : null;
         const positionsData = this.loadPortfolioData('positions');
         const canvas = document.getElementById(canvasId);
 
@@ -1658,7 +1813,7 @@ class StockDashboard {
             this.portfolioCharts.delete(canvasId);
         }
 
-        if (!tradesData || tradesData.length === 0) {
+        if (!rawTrades || rawTrades.length === 0) {
             const ctx = canvas.getContext('2d');
             ctx.fillStyle = '#666';
             ctx.font = '13px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto';
@@ -1946,7 +2101,10 @@ class StockDashboard {
     }
 
     async renderMarketActivityByTicker(canvasId, timeframe = '1y') {
-        const tradesData = this.loadPortfolioData('trades');
+        const rawTrades = this.loadPortfolioData('trades');
+        const tradesData = rawTrades
+            ? rawTrades.filter(t => !this.portfolioExcludedSymbols.has(t.symbol?.toUpperCase()))
+            : null;
         const canvas = document.getElementById(canvasId);
 
         if (!canvas) return;
@@ -1958,7 +2116,7 @@ class StockDashboard {
             this.portfolioCharts.delete(canvasId);
         }
 
-        if (!tradesData || tradesData.length === 0) {
+        if (!rawTrades || rawTrades.length === 0) {
             const ctx = canvas.getContext('2d');
             ctx.fillStyle = '#666';
             ctx.font = '13px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto';
@@ -2207,12 +2365,13 @@ class StockDashboard {
         const dropdown = graphCard.querySelector('.ticker-dropdown');
         const tickerList = graphCard.querySelector('.ticker-list');
 
-        // Get all unique tickers from trades
+        // Get all unique tickers from trades, excluding hidden symbols
         const tradesData = this.loadPortfolioData('trades');
         const tickers = new Set();
         if (tradesData) {
             tradesData.forEach(trade => {
-                if (trade.symbol && trade.type?.toLowerCase() !== 'dividend') {
+                if (trade.symbol && trade.type?.toLowerCase() !== 'dividend' &&
+                    !this.portfolioExcludedSymbols.has(trade.symbol.toUpperCase())) {
                     tickers.add(trade.symbol);
                 }
             });

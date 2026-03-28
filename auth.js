@@ -20,6 +20,7 @@ const SYNC_KEYS = [
     'portfolio_categories_columns',
     'portfolio_categories_uploaded_at',
     'show_values',
+    'portfolio_excluded_symbols',
 ];
 
 // ── Firebase init ──────────────────────────────────────────────────────────────
@@ -203,6 +204,7 @@ firebaseAuth.onAuthStateChanged(async (user) => {
             window.dashboard.stockList = window.dashboard.loadStockList();
             window.dashboard.updateAvailableGraphs();
             window.dashboard.portfolioGraphs = window.dashboard.loadPortfolioGraphs();
+            window.dashboard.portfolioExcludedSymbols = window.dashboard.loadPortfolioExcludedSymbols();
             window.dashboard.renderAllStocks();
             window.dashboard.renderPortfolioGraphs();
             window.dashboard.updateDataIndicators();

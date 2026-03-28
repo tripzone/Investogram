@@ -443,6 +443,105 @@ h1 {
     font-size: 11px;
 }
 
+/* Portfolio Filter Bar */
+.portfolio-filter-bar {
+    grid-column: 1 / -1;
+    display: flex;
+    align-items: center;
+    margin-bottom: -4px;
+}
+
+.portfolio-filter-wrapper {
+    position: relative;
+}
+
+.portfolio-filter-btn {
+    background: #1a1a1a;
+    border: 1px solid #333;
+    border-radius: 4px;
+    color: #666;
+    cursor: pointer;
+    font-size: 0.78rem;
+    padding: 4px 10px;
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    transition: border-color 0.15s, color 0.15s;
+}
+
+.portfolio-filter-btn:hover {
+    border-color: #555;
+    color: #aaa;
+}
+
+.portfolio-filter-btn.has-exclusions {
+    border-color: #d97706;
+    color: #d97706;
+}
+
+.portfolio-filter-dropdown {
+    position: absolute;
+    top: calc(100% + 6px);
+    left: 0;
+    background: #1a1a1a;
+    border: 1px solid #2e2e2e;
+    border-radius: 6px;
+    z-index: 200;
+    min-width: 150px;
+    max-height: 480px;
+    overflow-y: auto;
+    box-shadow: 0 6px 20px rgba(0, 0, 0, 0.55);
+}
+
+.portfolio-filter-dropdown.hidden {
+    display: none;
+}
+
+.portfolio-filter-select-all-row {
+    border-bottom: 1px solid #272727;
+}
+
+.portfolio-filter-item {
+    padding: 6px 10px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    user-select: none;
+    transition: background 0.1s;
+}
+
+.portfolio-filter-item:hover {
+    background: #232323;
+}
+
+.pf-check {
+    font-size: 10px;
+    color: #48bb78;
+    width: 12px;
+    text-align: center;
+    flex-shrink: 0;
+    line-height: 1;
+}
+
+.pf-label {
+    font-size: 0.78rem;
+    color: #999;
+    letter-spacing: 0.3px;
+}
+
+.portfolio-filter-select-all-row .pf-label {
+    font-weight: 600;
+    color: #777;
+    font-size: 0.75rem;
+    letter-spacing: 0.4px;
+    text-transform: uppercase;
+}
+
+.portfolio-filter-item:hover .pf-label {
+    color: #ccc;
+}
+
 /* Portfolio View Grid */
 #portfolioView {
     display: grid;
