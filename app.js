@@ -888,8 +888,10 @@ class StockDashboard {
     }
 
     refreshAnalysis() {
-        const positions = this.loadPortfolioData('positions');
-        if (!positions) return;
+        const raw = this.loadPortfolioData('positions');
+        if (!raw) return;
+        const positions = raw.filter(p => !this.portfolioExcludedSymbols.has(p.symbol?.toUpperCase()));
+        if (!positions.length) return;
         const body = document.getElementById('ai-analysis-body');
         if (body) body.innerHTML = '<span class="ai-analysis-loading">Analyzing portfolio...</span>';
         this.fetchPortfolioAnalysis(positions);
@@ -911,7 +913,10 @@ class StockDashboard {
         portfolioView.innerHTML = '';
 
         // Insert AI analysis card
-        const positions = this.loadPortfolioData('positions');
+        const rawPositions = this.loadPortfolioData('positions');
+        const positions = rawPositions
+            ? rawPositions.filter(p => !this.portfolioExcludedSymbols.has(p.symbol?.toUpperCase()))
+            : null;
         if (positions && positions.length > 0) {
             portfolioView.appendChild(this.buildAnalysisCard());
             this.fetchPortfolioAnalysis(positions);
