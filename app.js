@@ -883,6 +883,7 @@ class StockDashboard {
                 const clean = data.analysis.replace(/\*\*/g, '');
                 body.innerHTML = clean
                     .split(/\n\n+/)
+                    .filter(p => p.trim())
                     .map(p => {
                         let text = p.trim();
                         // Style section labels
