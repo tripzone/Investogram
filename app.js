@@ -882,7 +882,13 @@ class StockDashboard {
             } else {
                 body.innerHTML = data.analysis
                     .split(/\n\n+/)
-                    .map(p => `<p>${p.trim()}</p>`)
+                    .map(p => {
+                        const text = p.trim();
+                        return text.replace(/^(Analysis|Recommendation):/i, (_, label) =>
+                            `<span class="ai-section-label">${label}:</span>`
+                        );
+                    })
+                    .map(p => `<p>${p}</p>`)
                     .join('');
             }
         } catch {

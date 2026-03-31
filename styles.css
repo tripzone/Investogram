@@ -499,6 +499,16 @@ h1 {
     margin-bottom: 0;
 }
 
+.ai-section-label {
+    display: block;
+    font-size: 0.68rem;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: #6b8ccc;
+    margin-bottom: 4px;
+}
+
 .ai-analysis-loading {
     color: #4a6a9c;
     font-style: italic;
