@@ -134,7 +134,10 @@ class StockDashboard {
         const watchlistControls = document.querySelector('.watchlist-controls');
         const portfolioControls = document.querySelector('.portfolio-controls');
         const uploadControls = document.querySelector('.upload-controls');
-        const stockActionBtns = document.getElementById('stockActionBtns');
+        const stockActionBtns = document.querySelectorAll('.stock-action-btns');
+
+        const showStockActions = () => stockActionBtns.forEach(el => el.classList.remove('hidden'));
+        const hideStockActions = () => stockActionBtns.forEach(el => el.classList.add('hidden'));
 
         stocksTab.addEventListener('click', () => {
             stocksTab.classList.add('active');
@@ -148,7 +151,7 @@ class StockDashboard {
             watchlistControls.classList.add('hidden');
             portfolioControls.classList.add('hidden');
             uploadControls.classList.remove('visible');
-            stockActionBtns.classList.remove('hidden');
+            showStockActions();
         });
 
         watchlistTab.addEventListener('click', () => {
@@ -163,7 +166,7 @@ class StockDashboard {
             stockControls.classList.add('hidden');
             portfolioControls.classList.add('hidden');
             uploadControls.classList.remove('visible');
-            stockActionBtns.classList.add('hidden');
+            hideStockActions();
         });
 
         portfolioTab.addEventListener('click', () => {
@@ -178,7 +181,7 @@ class StockDashboard {
             watchlistControls.classList.add('hidden');
             portfolioControls.classList.remove('hidden');
             uploadControls.classList.add('visible');
-            stockActionBtns.classList.add('hidden');
+            hideStockActions();
 
             if (this._pendingAnalysisMeasure) {
                 this._pendingAnalysisMeasure = false;
@@ -3114,21 +3117,6 @@ class StockDashboard {
             if (e.key === 'Enter') {
                 this.addStock();
             }
-        });
-
-        // Refresh button
-        document.getElementById('refreshBtn').addEventListener('click', () => {
-            this.refreshAllStocks();
-        });
-
-        // Collapse all button
-        document.getElementById('collapseAllBtn').addEventListener('click', () => {
-            this.collapseAllCards();
-        });
-
-        // Expand all button
-        document.getElementById('expandAllBtn').addEventListener('click', () => {
-            this.expandAllCards();
         });
 
         // Settings button - remove API key option

@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Stock Dashboard</title>
-    <link rel="stylesheet" href="styles.css?v=34">
+    <link rel="stylesheet" href="styles.css?v=35">
     <!-- Firebase SDK (compat) -->
     <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-auth-compat.js"></script>
@@ -51,16 +51,17 @@
                         </button>
                     </div>
                 </div>
-            </div>
-            <div class="stock-action-btns" id="stockActionBtns">
-                <button id="collapseAllBtn" title="Collapse all cards">◢◣</button>
-                <button id="expandAllBtn" title="Expand all cards">◥◤</button>
-                <button id="refreshBtn" title="Refresh">
-                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                        <polyline points="23 4 23 10 17 10"/>
-                        <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/>
-                    </svg>
-                </button>
+                <!-- Desktop: action buttons sit right of tabs -->
+                <div class="stock-action-btns stock-action-desktop">
+                    <button onclick="dashboard.collapseAllCards()" title="Collapse all cards">◢◣</button>
+                    <button onclick="dashboard.expandAllCards()" title="Expand all cards">◥◤</button>
+                    <button onclick="dashboard.refreshAllStocks()" title="Refresh">
+                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <polyline points="23 4 23 10 17 10"/>
+                            <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/>
+                        </svg>
+                    </button>
+                </div>
             </div>
             <div class="header-center">
                 <button id="signInHeaderBtn" class="sign-in-header-btn" title="Sign in">Sign In</button>
@@ -78,6 +79,17 @@
                         maxlength="30"
                     >
                     <button id="addStockBtn">Add</button>
+                </div>
+                <!-- Mobile: action buttons sit beside add form on row 2 -->
+                <div class="stock-action-btns stock-action-mobile">
+                    <button onclick="dashboard.collapseAllCards()" title="Collapse all cards">◢◣</button>
+                    <button onclick="dashboard.expandAllCards()" title="Expand all cards">◥◤</button>
+                    <button onclick="dashboard.refreshAllStocks()" title="Refresh">
+                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <polyline points="23 4 23 10 17 10"/>
+                            <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/>
+                        </svg>
+                    </button>
                 </div>
             </div>
             <div class="controls watchlist-controls hidden">
@@ -316,7 +328,7 @@
     </style>
 
     <script src="api.js?v=9"></script>
-    <script src="app.js?v=56"></script>
+    <script src="app.js?v=57"></script>
     <script src="firebase-config.js"></script>
     <script src="auth.js"></script>
 </body>

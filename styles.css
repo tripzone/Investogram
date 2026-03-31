@@ -218,8 +218,14 @@ h1 {
     gap: 4px;
 }
 
-.stock-action-btns.hidden {
+/* Desktop: show header copy, hide controls copy */
+.stock-action-mobile {
     display: none;
+}
+
+/* Tab-switch hide (applies to both copies) */
+.stock-action-btns.hidden {
+    display: none !important;
 }
 
 #collapseAllBtn,
@@ -1461,14 +1467,13 @@ button:active {
         justify-content: flex-start;
     }
 
-    .stock-controls {
-        flex: 1;
-        min-width: 0;
+    /* Mobile: hide header copy, show controls copy */
+    .stock-action-desktop {
+        display: none;
     }
 
-    .stock-action-btns {
-        order: 4;
-        flex: 0 0 auto;
+    .stock-action-mobile {
+        display: flex;
     }
 
     .add-stock-form {
