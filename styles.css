@@ -228,9 +228,7 @@ h1 {
     display: none !important;
 }
 
-#collapseAllBtn,
-#expandAllBtn,
-#refreshBtn {
+.stock-action-btns button {
     background: transparent;
     color: #555;
     border: 1px solid #2a2a2a;
@@ -248,9 +246,7 @@ h1 {
     transition: all 0.2s;
 }
 
-#collapseAllBtn:hover,
-#expandAllBtn:hover,
-#refreshBtn:hover {
+.stock-action-btns button:hover {
     background: #242424;
     color: #888;
     border-color: #333;
