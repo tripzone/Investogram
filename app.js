@@ -894,6 +894,8 @@ class StockDashboard {
                         );
                         // Split numbered items onto their own lines
                         text = text.replace(/\n(\d+\.)/g, '<br>$1');
+                        // Remove <br> immediately after a block-level section label span
+                        text = text.replace(/<\/span><br>/g, '</span>');
                         return `<p>${text}</p>`;
                     })
                     .join('');
