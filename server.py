@@ -164,6 +164,14 @@ def save_user_data():
     return jsonify({'ok': True})
 
 
+# ── Prompt loader ─────────────────────────────────────────────────────────────
+
+def load_prompt(name, **kwargs):
+    path = os.path.join(os.path.dirname(__file__), 'prompts', f'{name}.txt')
+    with open(path) as f:
+        return f.read().format(**kwargs)
+
+
 # ── Portfolio AI analysis ──────────────────────────────────────────────────────
 
 def _init_gemini():
@@ -192,12 +200,7 @@ def analyze_portfolio():
     if not positions:
         return jsonify({'error': 'No positions data'}), 400
 
-    prompt = f"""You are a concise personal investment analyst. Analyze the following portfolio positions and provide a brief health assessment.
-
-Portfolio positions:
-{json.dumps(positions, indent=2)}
-
-Provide a 3-5 sentence health assessment covering: diversification, concentration risk, any notable observations. Be direct and specific. Do not use markdown headers or bullet points — write in plain prose."""
+    prompt = load_prompt('portfolio_analysis', positions=json.dumps(positions, indent=2))
 
     try:
         response = _gemini_client.models.generate_content(
