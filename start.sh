@@ -12,7 +12,7 @@ echo ""
 # Start custom Python server with proxy and open browser
 cd "$(dirname "$0")"
 export GOOGLE_APPLICATION_CREDENTIALS="$(pwd)/serviceAccountKey.json"
-python3 server.py &
+python3.11 server.py &
 SERVER_PID=$!
 
 # Wait a moment for server to start

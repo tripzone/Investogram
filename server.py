@@ -4,6 +4,7 @@ Stock Dashboard server - Flask with Yahoo Finance proxy and user data API
 """
 
 import os
+import json
 import time
 import requests
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -161,6 +162,51 @@ def save_user_data():
         return jsonify({'error': 'No data provided'}), 400
     db.collection('users').document(uid).set(data, merge=True)
     return jsonify({'ok': True})
+
+
+# ── Portfolio AI analysis ──────────────────────────────────────────────────────
+
+def _init_gemini():
+    try:
+        from google import genai
+        client = genai.Client(vertexai=True, project='investogram-d995a', location='us-central1')
+        print("Gemini initialized via google-genai")
+        return client
+    except Exception as e:
+        print(f"Gemini not initialized: {e}")
+        return None
+
+_gemini_client = _init_gemini()
+
+
+@app.route('/api/analyze', methods=['POST'])
+def analyze_portfolio():
+    if _gemini_client is None:
+        return jsonify({'error': 'AI analysis not available'}), 503
+
+    body = request.get_json()
+    if not body:
+        return jsonify({'error': 'No data provided'}), 400
+
+    positions = body.get('positions', [])
+    if not positions:
+        return jsonify({'error': 'No positions data'}), 400
+
+    prompt = f"""You are a concise personal investment analyst. Analyze the following portfolio positions and provide a brief health assessment.
+
+Portfolio positions:
+{json.dumps(positions, indent=2)}
+
+Provide a 3-5 sentence health assessment covering: diversification, concentration risk, any notable observations. Be direct and specific. Do not use markdown headers or bullet points — write in plain prose."""
+
+    try:
+        response = _gemini_client.models.generate_content(
+            model='gemini-2.5-flash',
+            contents=prompt
+        )
+        return jsonify({'analysis': response.text})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
 
 
 # ── Static file serving ────────────────────────────────────────────────────────

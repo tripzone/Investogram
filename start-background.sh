@@ -12,7 +12,7 @@ if lsof -Pi :8000 -sTCP:LISTEN -t >/dev/null 2>&1 ; then
 fi
 
 # Start server in background
-nohup python3 server.py > server.log 2>&1 &
+nohup python3.11 server.py > server.log 2>&1 &
 SERVER_PID=$!
 
 # Wait a moment to check if it started successfully

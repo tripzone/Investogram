@@ -444,6 +444,59 @@ h1 {
 }
 
 /* Portfolio Filter Bar */
+.ai-analysis-card {
+    grid-column: 1 / -1;
+    background: #1e2230;
+    border: 1px solid #2a3a5c;
+    border-radius: 8px;
+    padding: 12px 16px;
+    margin-bottom: 4px;
+}
+
+.ai-analysis-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 8px;
+}
+
+.ai-analysis-label {
+    font-size: 0.7rem;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: #6b8ccc;
+}
+
+.ai-analysis-refresh-btn {
+    background: none;
+    border: none;
+    cursor: pointer;
+    color: #4a6a9c;
+    padding: 2px;
+    display: flex;
+    align-items: center;
+    border-radius: 3px;
+    margin-left: auto;
+}
+
+.ai-analysis-refresh-btn:hover {
+    color: #6b8ccc;
+    background: rgba(107, 140, 204, 0.1);
+}
+
+.ai-analysis-body {
+    font-size: 0.85rem;
+    color: #c0cce8;
+    line-height: 1.55;
+}
+
+.ai-analysis-loading {
+    color: #4a6a9c;
+    font-style: italic;
+    font-size: 0.82rem;
+}
+
 .portfolio-filter-bar {
     grid-column: 1 / -1;
     display: flex;

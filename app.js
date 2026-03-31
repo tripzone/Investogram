@@ -846,6 +846,55 @@ class StockDashboard {
         localStorage.setItem('portfolio_graphs', JSON.stringify(this.portfolioGraphs));
     }
 
+    buildAnalysisCard() {
+        const card = document.createElement('div');
+        card.className = 'ai-analysis-card';
+        card.id = 'ai-analysis-card';
+        card.innerHTML = `
+            <div class="ai-analysis-header">
+                <span class="ai-analysis-label">AI Health Analysis</span>
+                <button class="ai-analysis-refresh-btn" onclick="dashboard.refreshAnalysis()" title="Refresh analysis">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M23 4v6h-6"/><path d="M1 20v-6h6"/>
+                        <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>
+                    </svg>
+                </button>
+            </div>
+            <div class="ai-analysis-body" id="ai-analysis-body">
+                <span class="ai-analysis-loading">Analyzing portfolio...</span>
+            </div>
+        `;
+        return card;
+    }
+
+    async fetchPortfolioAnalysis(positions) {
+        const body = document.getElementById('ai-analysis-body');
+        if (!body) return;
+        try {
+            const resp = await fetch('/api/analyze', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ positions })
+            });
+            const data = await resp.json();
+            if (data.error) {
+                body.textContent = 'Analysis unavailable.';
+            } else {
+                body.textContent = data.analysis;
+            }
+        } catch {
+            body.textContent = 'Analysis unavailable.';
+        }
+    }
+
+    refreshAnalysis() {
+        const positions = this.loadPortfolioData('positions');
+        if (!positions) return;
+        const body = document.getElementById('ai-analysis-body');
+        if (body) body.innerHTML = '<span class="ai-analysis-loading">Analyzing portfolio...</span>';
+        this.fetchPortfolioAnalysis(positions);
+    }
+
     renderPortfolioGraphs() {
         const portfolioView = document.getElementById('portfolioView');
 
@@ -860,6 +909,13 @@ class StockDashboard {
         }
 
         portfolioView.innerHTML = '';
+
+        // Insert AI analysis card
+        const positions = this.loadPortfolioData('positions');
+        if (positions && positions.length > 0) {
+            portfolioView.appendChild(this.buildAnalysisCard());
+            this.fetchPortfolioAnalysis(positions);
+        }
 
         // Insert filter bar
         portfolioView.appendChild(this.buildExcludeFilterBar());
