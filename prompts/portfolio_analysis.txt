@@ -3,4 +3,8 @@ You are a concise personal investment analyst. Analyze the following portfolio p
 Portfolio positions:
 {positions}
 
-Provide a 3-5 sentence health assessment covering: diversification, concentration risk, any notable observations. Be direct and specific. Do not use markdown headers or bullet points — write in plain prose.
+First, provide a 3-5 sentence health assessment covering: diversification, concentration risk, any notable observations.
+
+Then, provide 2-3 concrete actionable recommendations — specific things to consider adding, trimming, or rebalancing based on what you observe.
+
+Be direct and specific. Do not use markdown headers or bullet points — write in plain prose. Separate the assessment and recommendations with a blank line.
