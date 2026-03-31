@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Stock Dashboard</title>
-    <link rel="stylesheet" href="styles.css?v=30">
+    <link rel="stylesheet" href="styles.css?v=31">
     <!-- Firebase SDK (compat) -->
     <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-auth-compat.js"></script>
@@ -20,7 +20,8 @@
         <header>
             <div class="header-left">
                 <div class="tabs">
-                    <button id="stocksTab" class="tab-btn active">Stocks</button>
+                    <button id="stocksTab" class="tab-btn active">Tracking</button>
+                    <button id="watchlistTab" class="tab-btn">Watchlist</button>
                     <button id="portfolioTab" class="tab-btn">Portfolio</button>
                     <div class="upload-controls">
                         <button id="uploadBtn" class="upload-icon-btn" title="Upload portfolio data">
@@ -72,6 +73,17 @@
                 </div>
                 <button id="refreshBtn">Refresh</button>
             </div>
+            <div class="controls watchlist-controls hidden">
+                <div class="add-stock-form">
+                    <input
+                        type="text"
+                        id="watchlistInput"
+                        placeholder="Add symbol to watchlist..."
+                        maxlength="30"
+                    >
+                    <button id="addWatchlistBtn">Add</button>
+                </div>
+            </div>
             <div class="controls portfolio-controls hidden">
                 <div class="add-graph-form">
                     <div class="graph-selector-wrapper">
@@ -97,6 +109,15 @@
 
             <div id="emptyState" class="empty-state hidden">
                 <p>No stocks added yet. Add your first stock above!</p>
+            </div>
+        </div>
+
+        <div id="watchlistView" class="tab-content hidden">
+            <div id="watchlistGrid" class="stock-grid">
+                <!-- Watchlist cards will be dynamically inserted here -->
+            </div>
+            <div id="watchlistEmptyState" class="empty-state hidden">
+                <p>No stocks in your watchlist. Add symbols above or click + on any tracking card.</p>
             </div>
         </div>
 
@@ -288,7 +309,7 @@
     </style>
 
     <script src="api.js?v=9"></script>
-    <script src="app.js?v=51"></script>
+    <script src="app.js?v=54"></script>
     <script src="firebase-config.js"></script>
     <script src="auth.js"></script>
 </body>

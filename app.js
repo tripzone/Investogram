@@ -4,6 +4,7 @@
 class StockDashboard {
     constructor() {
         this.stockList = this.loadStockList();
+        this.watchlist = this.loadWatchlist();
         this.portfolioGraphs = this.loadPortfolioGraphs();
         this.charts = new Map();
         this.portfolioCharts = new Map();
@@ -40,6 +41,7 @@ class StockDashboard {
         // Set up event listeners
         this.setupEventListeners();
         this.setupTabs();
+        this.setupWatchlistControls();
         this.setupUploadModal();
         this.setupGraphSelector();
         this.setupValuesToggle();
@@ -54,6 +56,7 @@ class StockDashboard {
         }
 
         this.renderAllStocks();
+        this.renderAllWatchlistStocks();
         this.renderPortfolioGraphs();
 
         // Update divider and card widths on window resize
@@ -122,47 +125,69 @@ class StockDashboard {
 
     setupTabs() {
         const stocksTab = document.getElementById('stocksTab');
+        const watchlistTab = document.getElementById('watchlistTab');
         const portfolioTab = document.getElementById('portfolioTab');
         const stocksView = document.getElementById('stocksView');
+        const watchlistView = document.getElementById('watchlistView');
         const portfolioView = document.getElementById('portfolioView');
         const stockControls = document.querySelector('.stock-controls');
+        const watchlistControls = document.querySelector('.watchlist-controls');
         const portfolioControls = document.querySelector('.portfolio-controls');
         const collapseAllBtn = document.getElementById('collapseAllBtn');
         const expandAllBtn = document.getElementById('expandAllBtn');
         const uploadControls = document.querySelector('.upload-controls');
 
         stocksTab.addEventListener('click', () => {
-            // Switch to stocks view
             stocksTab.classList.add('active');
+            watchlistTab.classList.remove('active');
             portfolioTab.classList.remove('active');
             stocksView.classList.remove('hidden');
+            watchlistView.classList.add('hidden');
             portfolioView.classList.add('hidden');
 
-            // Show stock-specific controls
             stockControls.classList.remove('hidden');
+            watchlistControls.classList.add('hidden');
             portfolioControls.classList.add('hidden');
             collapseAllBtn.style.display = 'flex';
             expandAllBtn.style.display = 'flex';
+            uploadControls.classList.remove('visible');
+        });
 
-            // Hide upload controls
+        watchlistTab.addEventListener('click', () => {
+            watchlistTab.classList.add('active');
+            stocksTab.classList.remove('active');
+            portfolioTab.classList.remove('active');
+            watchlistView.classList.remove('hidden');
+            stocksView.classList.add('hidden');
+            portfolioView.classList.add('hidden');
+
+            watchlistControls.classList.remove('hidden');
+            stockControls.classList.add('hidden');
+            portfolioControls.classList.add('hidden');
+            collapseAllBtn.style.display = 'none';
+            expandAllBtn.style.display = 'none';
             uploadControls.classList.remove('visible');
         });
 
         portfolioTab.addEventListener('click', () => {
-            // Switch to portfolio view
             portfolioTab.classList.add('active');
             stocksTab.classList.remove('active');
+            watchlistTab.classList.remove('active');
             portfolioView.classList.remove('hidden');
             stocksView.classList.add('hidden');
+            watchlistView.classList.add('hidden');
 
-            // Hide stock-specific controls
             stockControls.classList.add('hidden');
+            watchlistControls.classList.add('hidden');
             portfolioControls.classList.remove('hidden');
             collapseAllBtn.style.display = 'none';
             expandAllBtn.style.display = 'none';
-
-            // Show upload controls
             uploadControls.classList.add('visible');
+
+            if (this._pendingAnalysisMeasure) {
+                this._pendingAnalysisMeasure = false;
+                requestAnimationFrame(() => this._measureAnalysisToggle());
+            }
         });
     }
 
@@ -901,20 +926,28 @@ class StockDashboard {
                     })
                     .join('');
             }
-            const toggle = document.getElementById('ai-analysis-toggle');
-            if (toggle) {
-                // Measure full height before collapsing
-                body.classList.remove('ai-analysis-collapsed');
-                const fullHeight = body.scrollHeight;
-                body.classList.add('ai-analysis-collapsed');
-                const collapsedHeight = body.clientHeight;
-                const needsToggle = fullHeight > collapsedHeight + 2;
-                toggle.style.display = needsToggle ? 'block' : 'none';
-                body.onclick = needsToggle ? () => this.expandAnalysis() : null;
+            const portfolioView = document.getElementById('portfolioView');
+            if (portfolioView && !portfolioView.classList.contains('hidden')) {
+                this._measureAnalysisToggle();
+            } else {
+                this._pendingAnalysisMeasure = true;
             }
         } catch {
             body.textContent = 'Analysis unavailable.';
         }
+    }
+
+    _measureAnalysisToggle() {
+        const body = document.getElementById('ai-analysis-body');
+        const toggle = document.getElementById('ai-analysis-toggle');
+        if (!body || !toggle) return;
+        body.classList.remove('ai-analysis-collapsed');
+        const fullHeight = body.scrollHeight;
+        body.classList.add('ai-analysis-collapsed');
+        const collapsedHeight = body.clientHeight;
+        const needsToggle = fullHeight > collapsedHeight + 2;
+        toggle.style.display = needsToggle ? 'block' : 'none';
+        body.onclick = needsToggle ? () => this.expandAnalysis() : null;
     }
 
     refreshAnalysis() {
@@ -3231,6 +3264,201 @@ class StockDashboard {
         this.updateEmptyState();
     }
 
+    loadWatchlist() {
+        const saved = localStorage.getItem('watchlist');
+        return saved ? JSON.parse(saved) : [];
+    }
+
+    saveWatchlist() {
+        localStorage.setItem('watchlist', JSON.stringify(this.watchlist));
+        this.updateWatchlistEmptyState();
+    }
+
+    updateWatchlistEmptyState() {
+        const emptyState = document.getElementById('watchlistEmptyState');
+        const grid = document.getElementById('watchlistGrid');
+        if (this.watchlist.length === 0) {
+            emptyState.classList.remove('hidden');
+            grid.classList.add('hidden');
+        } else {
+            emptyState.classList.add('hidden');
+            grid.classList.remove('hidden');
+        }
+    }
+
+    setupWatchlistControls() {
+        const input = document.getElementById('watchlistInput');
+        const addBtn = document.getElementById('addWatchlistBtn');
+
+        addBtn.addEventListener('click', () => this.addToWatchlistFromInput());
+        input.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') this.addToWatchlistFromInput();
+        });
+    }
+
+    async addToWatchlistFromInput() {
+        const input = document.getElementById('watchlistInput');
+        const symbol = input.value.trim().toUpperCase();
+        if (!symbol) return;
+
+        if (this.watchlist.includes(symbol)) {
+            alert('Symbol already in watchlist');
+            input.value = '';
+            return;
+        }
+
+        try {
+            input.disabled = true;
+            document.getElementById('addWatchlistBtn').disabled = true;
+
+            await stockAPI.getStockData(symbol);
+
+            this.watchlist.push(symbol);
+            this.saveWatchlist();
+            this.renderWatchlistStock(symbol);
+            this.updateWatchlistAddButtons();
+
+            input.value = '';
+        } catch (error) {
+            alert(`Error: Could not find stock "${symbol}". Please check the symbol and try again.`);
+        } finally {
+            input.disabled = false;
+            document.getElementById('addWatchlistBtn').disabled = false;
+        }
+    }
+
+    async addToWatchlist(symbol) {
+        if (this.watchlist.includes(symbol)) return;
+
+        this.watchlist.push(symbol);
+        this.saveWatchlist();
+        this.renderWatchlistStock(symbol);
+        this.updateWatchlistAddButtons();
+    }
+
+    removeFromWatchlist(symbol) {
+        this.watchlist = this.watchlist.filter(s => s !== symbol);
+        this.saveWatchlist();
+
+        const card = document.getElementById(`watchlist-${symbol}`);
+        if (card) card.remove();
+
+        const chartKey = `wl-${symbol}`;
+        if (this.charts.has(chartKey)) {
+            this.charts.get(chartKey).destroy();
+            this.charts.delete(chartKey);
+        }
+
+        this.updateWatchlistAddButtons();
+    }
+
+    updateWatchlistAddButtons() {
+        document.querySelectorAll('.watchlist-add-btn').forEach(btn => {
+            const symbol = btn.dataset.symbol;
+            if (this.watchlist.includes(symbol)) {
+                btn.classList.add('in-watchlist');
+                btn.title = 'Already in Watchlist';
+            } else {
+                btn.classList.remove('in-watchlist');
+                btn.title = 'Add to Watchlist';
+            }
+        });
+    }
+
+    async renderWatchlistStock(symbol) {
+        const grid = document.getElementById('watchlistGrid');
+        const card = this.createWatchlistCard(symbol);
+        grid.appendChild(card);
+
+        try {
+            const data = await stockAPI.getStockData(symbol);
+            this.updateStockCard(symbol, data, 'watchlist');
+        } catch (error) {
+            const metricsEl = document.querySelector(`#watchlist-${symbol} .primary-metric`);
+            if (metricsEl) metricsEl.textContent = 'Error loading data';
+        }
+    }
+
+    renderAllWatchlistStocks() {
+        const grid = document.getElementById('watchlistGrid');
+        grid.innerHTML = '';
+        this.watchlist.forEach(symbol => this.renderWatchlistStock(symbol));
+        this.updateWatchlistEmptyState();
+    }
+
+    createWatchlistCard(symbol) {
+        const card = document.createElement('div');
+        card.className = 'stock-card loading';
+        card.id = `watchlist-${symbol}`;
+        card.draggable = true;
+        card.dataset.symbol = symbol;
+        card.dataset.width = 1;
+
+        card.innerHTML = `
+            <div class="stock-header">
+                <div class="stock-symbol">
+                    <span class="drag-handle">⋮⋮</span>
+                    ${symbol}
+                </div>
+                <button class="remove-btn" onclick="dashboard.removeFromWatchlist('${symbol}')">×</button>
+            </div>
+            <div class="stock-metrics" data-symbol="${symbol}" data-context="watchlist">
+                <div class="primary-metric">Loading...</div>
+                <div class="secondary-metrics"></div>
+            </div>
+            <div class="chart-container">
+                <canvas id="chart-watchlist-${symbol}"></canvas>
+            </div>
+            <div class="ma-info">
+                <span class="ma-comparison">Loading...</span>
+            </div>
+        `;
+
+        const metricsArea = card.querySelector('.stock-metrics');
+        metricsArea.addEventListener('click', (e) => {
+            e.stopPropagation();
+            card.classList.toggle('collapsed');
+        });
+
+        card.addEventListener('dragstart', (e) => this.handleDragStart(e));
+        card.addEventListener('dragover', (e) => this.handleDragOver(e));
+        card.addEventListener('drop', (e) => this.handleWatchlistDrop(e));
+        card.addEventListener('dragend', (e) => this.handleDragEnd(e));
+        card.addEventListener('dragenter', (e) => this.handleDragEnter(e));
+        card.addEventListener('dragleave', (e) => this.handleDragLeave(e));
+
+        return card;
+    }
+
+    handleWatchlistDrop(e) {
+        if (e.stopPropagation) e.stopPropagation();
+
+        const targetCard = e.target.closest('.stock-card');
+        if (this.draggedElement !== targetCard && targetCard) {
+            const draggedSymbol = this.draggedElement.dataset.symbol;
+            const targetSymbol = targetCard.dataset.symbol;
+
+            const draggedIndex = this.watchlist.indexOf(draggedSymbol);
+            const targetIndex = this.watchlist.indexOf(targetSymbol);
+
+            if (draggedIndex === -1 || targetIndex === -1) return;
+
+            this.watchlist.splice(draggedIndex, 1);
+            this.watchlist.splice(targetIndex, 0, draggedSymbol);
+
+            if (draggedIndex < targetIndex) {
+                targetCard.parentNode.insertBefore(this.draggedElement, targetCard.nextSibling);
+            } else {
+                targetCard.parentNode.insertBefore(this.draggedElement, targetCard);
+            }
+
+            this.saveWatchlist();
+        }
+
+        if (targetCard) targetCard.classList.remove('drag-over');
+        return false;
+    }
+
     updateEmptyState() {
         const emptyState = document.getElementById('emptyState');
         const stockGrid = document.getElementById('stockGrid');
@@ -3373,6 +3601,7 @@ class StockDashboard {
         });
 
         this.updateEmptyState();
+        this.updateWatchlistAddButtons();
 
         // Update divider widths after all stocks are rendered and layout is calculated
         requestAnimationFrame(() => {
@@ -3397,6 +3626,7 @@ class StockDashboard {
         // Create card element
         const card = this.createStockCard(symbol, width);
         grid.appendChild(card);
+        this.updateWatchlistAddButtons();
 
         try {
             // Fetch data
@@ -3541,6 +3771,7 @@ class StockDashboard {
                 <div class="stock-symbol">
                     <span class="drag-handle">⋮⋮</span>
                     ${symbol}
+                    <button class="watchlist-add-btn" data-symbol="${symbol}" onclick="dashboard.addToWatchlist('${symbol}')" title="Add to Watchlist">+</button>
                 </div>
                 <button class="remove-btn" onclick="dashboard.removeStock('${symbol}')">×</button>
             </div>
@@ -3643,8 +3874,9 @@ class StockDashboard {
         this.saveCollapsedStocks([]);
     }
 
-    updateStockCard(symbol, data) {
-        const card = document.getElementById(`stock-${symbol}`);
+    updateStockCard(symbol, data, context = 'tracking') {
+        const cardId = context === 'watchlist' ? `watchlist-${symbol}` : `stock-${symbol}`;
+        const card = document.getElementById(cardId);
         if (!card) return;
 
         card.classList.remove('loading');
@@ -3679,16 +3911,18 @@ class StockDashboard {
         `;
 
         // Create chart
-        this.createChart(symbol, data);
+        this.createChart(symbol, data, context);
     }
 
-    createChart(symbol, data) {
-        const canvas = document.getElementById(`chart-${symbol}`);
+    createChart(symbol, data, context = 'tracking') {
+        const chartKey = context === 'watchlist' ? `wl-${symbol}` : symbol;
+        const canvasId = context === 'watchlist' ? `chart-watchlist-${symbol}` : `chart-${symbol}`;
+        const canvas = document.getElementById(canvasId);
         if (!canvas) return;
 
         // Destroy existing chart if any
-        if (this.charts.has(symbol)) {
-            this.charts.get(symbol).destroy();
+        if (this.charts.has(chartKey)) {
+            this.charts.get(chartKey).destroy();
         }
 
         const ctx = canvas.getContext('2d');
@@ -3781,7 +4015,7 @@ class StockDashboard {
             }
         });
 
-        this.charts.set(symbol, chart);
+        this.charts.set(chartKey, chart);
     }
 
     showCardError(symbol, message) {
