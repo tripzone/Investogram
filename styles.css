@@ -491,6 +491,31 @@ h1 {
     line-height: 1.55;
 }
 
+.ai-analysis-body.ai-analysis-collapsed {
+    max-height: calc(1.55em * 3);
+    overflow: hidden;
+    mask-image: linear-gradient(to bottom, black 40%, transparent 100%);
+    -webkit-mask-image: linear-gradient(to bottom, black 40%, transparent 100%);
+    cursor: pointer;
+}
+
+.ai-analysis-toggle {
+    background: none;
+    border: none;
+    cursor: pointer;
+    color: #4a6a9c;
+    font-size: 0.78rem;
+    padding: 4px 0 0;
+    display: block;
+    margin-top: 2px;
+    text-align: center;
+    width: 100%;
+}
+
+.ai-analysis-toggle:hover {
+    color: #6b8ccc;
+}
+
 .ai-analysis-body p {
     margin: 0 0 10px;
 }

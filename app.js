@@ -860,9 +860,10 @@ class StockDashboard {
                     </svg>
                 </button>
             </div>
-            <div class="ai-analysis-body" id="ai-analysis-body">
+            <div class="ai-analysis-body ai-analysis-collapsed" id="ai-analysis-body" onclick="dashboard.expandAnalysis()">
                 <span class="ai-analysis-loading">Analyzing portfolio...</span>
             </div>
+            <button class="ai-analysis-toggle" id="ai-analysis-toggle" onclick="dashboard.toggleAnalysis()" style="display:none">Show more</button>
         `;
         return card;
     }
@@ -900,6 +901,17 @@ class StockDashboard {
                     })
                     .join('');
             }
+            const toggle = document.getElementById('ai-analysis-toggle');
+            if (toggle) {
+                // Measure full height before collapsing
+                body.classList.remove('ai-analysis-collapsed');
+                const fullHeight = body.scrollHeight;
+                body.classList.add('ai-analysis-collapsed');
+                const collapsedHeight = body.clientHeight;
+                const needsToggle = fullHeight > collapsedHeight + 2;
+                toggle.style.display = needsToggle ? 'block' : 'none';
+                body.onclick = needsToggle ? () => this.expandAnalysis() : null;
+            }
         } catch {
             body.textContent = 'Analysis unavailable.';
         }
@@ -911,8 +923,35 @@ class StockDashboard {
         const positions = raw.filter(p => !this.portfolioExcludedSymbols.has(p.symbol?.toUpperCase()));
         if (!positions.length) return;
         const body = document.getElementById('ai-analysis-body');
-        if (body) body.innerHTML = '<span class="ai-analysis-loading">Analyzing portfolio...</span>';
+        if (body) {
+            body.innerHTML = '<span class="ai-analysis-loading">Analyzing portfolio...</span>';
+            body.classList.add('ai-analysis-collapsed');
+            body.onclick = () => this.expandAnalysis();
+        }
+        const toggle = document.getElementById('ai-analysis-toggle');
+        if (toggle) { toggle.textContent = 'Show more'; toggle.style.display = 'none'; }
         this.fetchPortfolioAnalysis(positions);
+    }
+
+    expandAnalysis() {
+        const body = document.getElementById('ai-analysis-body');
+        const toggle = document.getElementById('ai-analysis-toggle');
+        if (!body || !body.classList.contains('ai-analysis-collapsed')) return;
+        body.classList.remove('ai-analysis-collapsed');
+        body.onclick = null;
+        if (toggle) {
+            toggle.textContent = 'Show less';
+            toggle.style.display = 'block';
+        }
+    }
+
+    toggleAnalysis() {
+        const body = document.getElementById('ai-analysis-body');
+        const toggle = document.getElementById('ai-analysis-toggle');
+        if (!body || !toggle) return;
+        const collapsed = body.classList.toggle('ai-analysis-collapsed');
+        toggle.textContent = collapsed ? 'Show more' : 'Show less';
+        body.onclick = collapsed ? () => this.expandAnalysis() : null;
     }
 
     renderPortfolioGraphs() {
