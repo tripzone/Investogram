@@ -880,15 +880,19 @@ class StockDashboard {
             if (data.error) {
                 body.textContent = 'Analysis unavailable.';
             } else {
-                body.innerHTML = data.analysis
+                const clean = data.analysis.replace(/\*\*/g, '');
+                body.innerHTML = clean
                     .split(/\n\n+/)
                     .map(p => {
-                        const text = p.trim();
-                        return text.replace(/^(Analysis|Recommendation):/i, (_, label) =>
+                        let text = p.trim();
+                        // Style section labels
+                        text = text.replace(/^(Analysis|Recommendation):/i, (_, label) =>
                             `<span class="ai-section-label">${label}:</span>`
                         );
+                        // Split numbered items onto their own lines
+                        text = text.replace(/\n(\d+\.)/g, '<br>$1');
+                        return `<p>${text}</p>`;
                     })
-                    .map(p => `<p>${p}</p>`)
                     .join('');
             }
         } catch {

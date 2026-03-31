@@ -9,4 +9,4 @@ Analysis: 3-5 sentences covering diversification, concentration risk, and notabl
 
 Recommendation: 2-3 concrete actionable steps — specific things to consider adding, trimming, or rebalancing.
 
-Start each section with the label "Analysis:" and "Recommendation:" on its own line. Be direct and specific. Write in plain prose, no bullet points.
+Start each section with the label "Analysis:" and "Recommendation:" on its own line. Be direct and specific. Do not use markdown of any kind — no bold (**), no bullet points, no headers. For the Recommendation section, number each item (1. 2. 3.) and put each on its own line.
