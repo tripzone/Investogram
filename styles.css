@@ -212,8 +212,15 @@ h1 {
     height: 14px;
 }
 
+.stock-action-btns {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+
 #collapseAllBtn,
-#expandAllBtn {
+#expandAllBtn,
+#refreshBtn {
     background: transparent;
     color: #555;
     border: 1px solid #2a2a2a;
@@ -232,7 +239,8 @@ h1 {
 }
 
 #collapseAllBtn:hover,
-#expandAllBtn:hover {
+#expandAllBtn:hover,
+#refreshBtn:hover {
     background: #242424;
     color: #888;
     border-color: #333;
@@ -953,17 +961,6 @@ button:active {
     transform: scale(0.98);
 }
 
-#refreshBtn {
-    background: transparent;
-    border-color: #2a2a2a;
-    color: #888;
-}
-
-#refreshBtn:hover {
-    background: #242424;
-    border-color: #333;
-    color: #aaa;
-}
 
 #settingsBtn {
     display: none;
@@ -1482,13 +1479,7 @@ button:active {
         min-width: 0;
     }
 
-    /* Hide expand/collapse to save header space */
-    #collapseAllBtn,
-    #expandAllBtn {
-        display: none;
-    }
-
-    /* Abbreviate sign-out: hide email, keep button */
+/* Abbreviate sign-out: hide email, keep button */
     .user-email {
         display: none;
     }

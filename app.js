@@ -133,8 +133,6 @@ class StockDashboard {
         const stockControls = document.querySelector('.stock-controls');
         const watchlistControls = document.querySelector('.watchlist-controls');
         const portfolioControls = document.querySelector('.portfolio-controls');
-        const collapseAllBtn = document.getElementById('collapseAllBtn');
-        const expandAllBtn = document.getElementById('expandAllBtn');
         const uploadControls = document.querySelector('.upload-controls');
 
         stocksTab.addEventListener('click', () => {
@@ -148,8 +146,6 @@ class StockDashboard {
             stockControls.classList.remove('hidden');
             watchlistControls.classList.add('hidden');
             portfolioControls.classList.add('hidden');
-            collapseAllBtn.style.display = 'flex';
-            expandAllBtn.style.display = 'flex';
             uploadControls.classList.remove('visible');
         });
 
@@ -164,8 +160,6 @@ class StockDashboard {
             watchlistControls.classList.remove('hidden');
             stockControls.classList.add('hidden');
             portfolioControls.classList.add('hidden');
-            collapseAllBtn.style.display = 'none';
-            expandAllBtn.style.display = 'none';
             uploadControls.classList.remove('visible');
         });
 
@@ -180,8 +174,6 @@ class StockDashboard {
             stockControls.classList.add('hidden');
             watchlistControls.classList.add('hidden');
             portfolioControls.classList.remove('hidden');
-            collapseAllBtn.style.display = 'none';
-            expandAllBtn.style.display = 'none';
             uploadControls.classList.add('visible');
 
             if (this._pendingAnalysisMeasure) {
