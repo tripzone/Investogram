@@ -880,7 +880,9 @@ class StockDashboard {
             if (data.error) {
                 body.textContent = 'Analysis unavailable.';
             } else {
-                const clean = data.analysis.replace(/\*\*/g, '');
+                const clean = data.analysis
+                    .replace(/\*\*/g, '')
+                    .replace(/^(Analysis|Recommendation):\s*\n+/gim, '$1:\n');
                 body.innerHTML = clean
                     .split(/\n\n+/)
                     .filter(p => p.trim())
