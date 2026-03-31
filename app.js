@@ -880,7 +880,10 @@ class StockDashboard {
             if (data.error) {
                 body.textContent = 'Analysis unavailable.';
             } else {
-                body.textContent = data.analysis;
+                body.innerHTML = data.analysis
+                    .split(/\n\n+/)
+                    .map(p => `<p>${p.trim()}</p>`)
+                    .join('');
             }
         } catch {
             body.textContent = 'Analysis unavailable.';

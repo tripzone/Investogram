@@ -491,6 +491,14 @@ h1 {
     line-height: 1.55;
 }
 
+.ai-analysis-body p {
+    margin: 0 0 10px;
+}
+
+.ai-analysis-body p:last-child {
+    margin-bottom: 0;
+}
+
 .ai-analysis-loading {
     color: #4a6a9c;
     font-style: italic;
