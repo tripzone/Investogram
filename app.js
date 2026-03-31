@@ -134,6 +134,7 @@ class StockDashboard {
         const watchlistControls = document.querySelector('.watchlist-controls');
         const portfolioControls = document.querySelector('.portfolio-controls');
         const uploadControls = document.querySelector('.upload-controls');
+        const stockActionBtns = document.getElementById('stockActionBtns');
 
         stocksTab.addEventListener('click', () => {
             stocksTab.classList.add('active');
@@ -147,6 +148,7 @@ class StockDashboard {
             watchlistControls.classList.add('hidden');
             portfolioControls.classList.add('hidden');
             uploadControls.classList.remove('visible');
+            stockActionBtns.classList.remove('hidden');
         });
 
         watchlistTab.addEventListener('click', () => {
@@ -161,6 +163,7 @@ class StockDashboard {
             stockControls.classList.add('hidden');
             portfolioControls.classList.add('hidden');
             uploadControls.classList.remove('visible');
+            stockActionBtns.classList.add('hidden');
         });
 
         portfolioTab.addEventListener('click', () => {
@@ -175,6 +178,7 @@ class StockDashboard {
             watchlistControls.classList.add('hidden');
             portfolioControls.classList.remove('hidden');
             uploadControls.classList.add('visible');
+            stockActionBtns.classList.add('hidden');
 
             if (this._pendingAnalysisMeasure) {
                 this._pendingAnalysisMeasure = false;

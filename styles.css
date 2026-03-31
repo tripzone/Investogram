@@ -218,6 +218,10 @@ h1 {
     gap: 4px;
 }
 
+.stock-action-btns.hidden {
+    display: none;
+}
+
 #collapseAllBtn,
 #expandAllBtn,
 #refreshBtn {
@@ -1455,6 +1459,16 @@ button:active {
         flex: 0 0 100%;
         order: 3;
         justify-content: flex-start;
+    }
+
+    .stock-controls {
+        flex: 1;
+        min-width: 0;
+    }
+
+    .stock-action-btns {
+        order: 4;
+        flex: 0 0 auto;
     }
 
     .add-stock-form {
