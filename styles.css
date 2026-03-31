@@ -904,7 +904,8 @@ h1 {
     text-align: center;
 }
 
-#stockInput {
+#stockInput,
+#watchlistInput {
     padding: 6px 12px;
     border: 1px solid #2a2a2a;
     border-radius: 3px;
@@ -915,13 +916,15 @@ h1 {
     width: 180px;
 }
 
-#stockInput:focus {
+#stockInput:focus,
+#watchlistInput:focus {
     outline: none;
     border-color: #444;
     background: #2a2a2a;
 }
 
-#stockInput::placeholder {
+#stockInput::placeholder,
+#watchlistInput::placeholder {
     color: #555;
 }
 
@@ -1462,7 +1465,8 @@ button:active {
         max-width: unset;
     }
 
-    #stockInput {
+    #stockInput,
+    #watchlistInput {
         flex: 1;
         width: auto;
         min-width: 0;
