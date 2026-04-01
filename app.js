@@ -17,6 +17,7 @@ class StockDashboard {
         this.selectedFile = null;
         this.selectedGraph = null;
         this.showValues = this.loadShowValuesPreference();
+        this.stockDataMap = {}; // symbol -> last known stock data, used for AI analysis
         this.resizing = null; // Track active resize operation
         this.latestPrices = null; // Map<symbol, { currentPrice, currency }>
         this.latestPricesState = 'idle'; // 'idle' | 'loading' | 'active' | 'error'
@@ -3415,11 +3416,13 @@ class StockDashboard {
         }
     }
 
-    renderAllWatchlistStocks() {
+    async renderAllWatchlistStocks() {
         const grid = document.getElementById('watchlistGrid');
         grid.innerHTML = '';
-        this.watchlist.forEach(symbol => this.renderWatchlistStock(symbol));
+        const renderPromises = this.watchlist.map(symbol => this.renderWatchlistStock(symbol));
         this.updateWatchlistEmptyState();
+        await Promise.all(renderPromises);
+        this.analyzeWatchlistWithAI();
     }
 
     createWatchlistCard(symbol) {
@@ -3438,15 +3441,20 @@ class StockDashboard {
                 </div>
                 <button class="remove-btn" onclick="dashboard.removeFromWatchlist('${symbol}')">×</button>
             </div>
-            <div class="stock-metrics" data-symbol="${symbol}" data-context="watchlist">
-                <div class="primary-metric">Loading...</div>
-                <div class="secondary-metrics"></div>
-            </div>
-            <div class="chart-container">
-                <canvas id="chart-watchlist-${symbol}"></canvas>
-            </div>
-            <div class="ma-info">
-                <span class="ma-comparison">Loading...</span>
+            <div class="watchlist-card-body">
+                <div class="watchlist-card-left">
+                    <div class="stock-metrics" data-symbol="${symbol}" data-context="watchlist">
+                        <div class="primary-metric">Loading...</div>
+                        <div class="secondary-metrics"></div>
+                    </div>
+                    <div class="chart-container">
+                        <canvas id="chart-watchlist-${symbol}"></canvas>
+                    </div>
+                    <div class="ma-info">
+                        <span class="ma-comparison">Loading...</span>
+                    </div>
+                </div>
+                <div class="ai-section hidden"></div>
             </div>
         `;
 
@@ -3627,12 +3635,13 @@ class StockDashboard {
             grid.classList.remove('many-stocks');
         }
 
+        const renderPromises = [];
         this.stockList.forEach((entry, index) => {
             const parsed = this.parseStockEntry(entry);
             if (parsed.isDivider) {
                 this.renderDivider(index, parsed.title);
             } else {
-                this.renderStock(entry);
+                renderPromises.push(this.renderStock(entry));
             }
         });
 
@@ -3645,6 +3654,8 @@ class StockDashboard {
                 this.updateAllDividerWidths();
             });
         });
+
+        await Promise.all(renderPromises);
     }
 
     refreshAllStocks() {
@@ -3948,6 +3959,150 @@ class StockDashboard {
 
         // Create chart
         this.createChart(symbol, data, context);
+
+        // Store data for AI analysis calls (watchlist only)
+        if (context === 'watchlist') {
+            this.stockDataMap[symbol] = data;
+            // Restore cached AI analysis if available for today
+            const cached = this.getCachedAIAnalysis();
+            if (cached && cached[symbol]) {
+                this.updateCardWithAI(symbol, cached[symbol]);
+            }
+        }
+    }
+
+    getCachedAIAnalysis() {
+        const today = new Date().toISOString().split('T')[0];
+        const raw = localStorage.getItem(`ai_stock_analysis_${today}`);
+        return raw ? JSON.parse(raw) : null;
+    }
+
+    refreshAIAnalysis() {
+        const today = new Date().toISOString().split('T')[0];
+        localStorage.removeItem(`ai_stock_analysis_${today}`);
+        this.analyzeWatchlistWithAI();
+    }
+
+    setAIBarStatus(text, loading = false) {
+        const status = document.getElementById('ai-bar-status');
+        const btn = document.getElementById('aiRefreshBtn');
+        if (status) status.textContent = text;
+        if (btn) btn.disabled = loading;
+    }
+
+    async analyzeWatchlistWithAI() {
+        const btn = document.getElementById('aiRefreshBtn');
+
+        // Collect symbols from watchlist
+        const symbols = this.watchlist.filter(s => s);
+
+        if (!symbols.length) return;
+
+        // Check 24h cache
+        const cached = this.getCachedAIAnalysis();
+        if (cached) {
+            symbols.forEach(symbol => {
+                if (cached[symbol]) this.updateCardWithAI(symbol, cached[symbol]);
+            });
+            this.setAIBarStatus('AI · cached');
+            return;
+        }
+
+        // Build stocks payload from stored data
+        const stocks = symbols
+            .filter(symbol => this.stockDataMap[symbol])
+            .map(symbol => {
+                const d = this.stockDataMap[symbol];
+                return {
+                    symbol,
+                    currentPrice: d.currentPrice,
+                    vsMA50: d.vsMA50,
+                    vsMA200: d.vsMA200,
+                    dayChangePercent: d.dayChangePercent,
+                    weeklyChangePercent: d.weeklyChangePercent
+                };
+            });
+
+        if (!stocks.length) return;
+
+        // Portfolio context
+        const rawPositions = JSON.parse(localStorage.getItem('portfolio_positions') || '[]');
+        const portfolio = rawPositions.map(p => ({
+            symbol: p.symbol,
+            quantity: p.quantity,
+            average_entry_price: p.average_entry_price,
+            currency: p.currency
+        }));
+
+        // Show loading state
+        this.setAIBarStatus('AI · analyzing...', true);
+        symbols.forEach(symbol => {
+            const card = document.getElementById(`watchlist-${symbol}`);
+            if (!card) return;
+            const aiSection = card.querySelector('.ai-section');
+            if (aiSection) {
+                aiSection.classList.remove('hidden');
+                aiSection.innerHTML = '<div class="ai-loading">Analyzing...</div>';
+            }
+        });
+
+        try {
+            const response = await fetch('/api/ai/stock-analysis', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ stocks, portfolio })
+            });
+
+            if (!response.ok) throw new Error(`HTTP ${response.status}`);
+            const analysis = await response.json();
+            if (analysis.error) throw new Error(analysis.error);
+
+            // Cache for today
+            const today = new Date().toISOString().split('T')[0];
+            localStorage.setItem(`ai_stock_analysis_${today}`, JSON.stringify(analysis));
+
+            symbols.forEach(symbol => {
+                if (analysis[symbol]) this.updateCardWithAI(symbol, analysis[symbol]);
+            });
+            this.setAIBarStatus('AI · updated today');
+        } catch (err) {
+            console.error('AI analysis failed:', err);
+            symbols.forEach(symbol => {
+                const card = document.getElementById(`watchlist-${symbol}`);
+                if (!card) return;
+                const aiSection = card.querySelector('.ai-section');
+                if (aiSection) aiSection.innerHTML = '<div class="ai-error">Analysis unavailable</div>';
+            });
+            this.setAIBarStatus('AI · unavailable');
+        } finally {
+            if (btn) btn.disabled = false;
+        }
+    }
+
+    updateCardWithAI(symbol, analysis) {
+        const card = document.getElementById(`watchlist-${symbol}`);
+        if (!card) return;
+        const aiSection = card.querySelector('.ai-section');
+        if (!aiSection) return;
+
+        const verdict = analysis.verdict || 'hold';
+        const label = verdict.charAt(0).toUpperCase() + verdict.slice(1);
+
+        aiSection.classList.remove('hidden');
+        aiSection.innerHTML = `
+            <div class="ai-verdict-row">
+                <div class="ai-verdict ${verdict}">${label}</div>
+                ${analysis.rationale ? `<div class="ai-rationale">${analysis.rationale}</div>` : ''}
+            </div>
+            <div class="ai-summary">${analysis.summary}</div>
+            <button class="ai-detail-toggle" onclick="this.nextElementSibling.classList.toggle('hidden'); this.textContent = this.nextElementSibling.classList.contains('hidden') ? 'Details ▾' : 'Details ▴'">Details ▾</button>
+            <div class="ai-detail hidden">
+                <p><span class="ai-label">Valuation:</span> ${analysis.valuation}</p>
+                <p><span class="ai-label">Fundamentals:</span> ${analysis.fundamentals}</p>
+                <p><span class="ai-label">Portfolio fit:</span> ${analysis.portfolio_fit}</p>
+                <p><span class="ai-label">Long-term:</span> ${analysis.long_term}</p>
+            </div>
+        `;
     }
 
     createChart(symbol, data, context = 'tracking') {

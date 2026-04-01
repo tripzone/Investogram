@@ -24,6 +24,7 @@ Single-user focused. Designed for personal use with optional Google sign-in for 
 | Auth | Firebase Authentication (Google Sign-In) |
 | Charts | Chart.js v4.4.0 + chartjs-chart-financial |
 | Stock Data | Yahoo Finance (unofficial API, proxied via Flask) |
+| AI Analysis | Google Gemini via `google-cloud-aiplatform` SDK (ADC auth, Vertex AI) |
 | Containerization | Docker |
 | Hosting | Google Cloud Run |
 
@@ -40,6 +41,15 @@ Single-user focused. Designed for personal use with optional Google sign-in for 
 - Project: `investogram-d995a`, Auth Domain: `investogram-d995a.firebaseapp.com`
 - Stores per-user data synced from localStorage (stocks, portfolio graphs, CSVs, preferences)
 - Firestore path: `users/{uid}` — single document per user
+
+### Gemini AI (Google Generative AI)
+- Used for AI-powered stock analysis in the Tracking tab
+- SDK: `google-cloud-aiplatform` Python package (already in `requirements.txt`)
+- Auth: Application Default Credentials (ADC) — same as Firestore, no API key needed
+- Locally: ADC from `serviceAccountKey.json` via `GOOGLE_APPLICATION_CREDENTIALS`
+- On Cloud Run: ADC via service account — must have `Vertex AI User` role in GCP IAM
+- Flask route: `POST /api/ai/analyze` — accepts stocks + portfolio context, returns JSON keyed by symbol
+- **Never use an API key** — always authenticate via ADC
 
 ### Yahoo Finance (External API)
 - Provides stock price data (OHLC, historical)

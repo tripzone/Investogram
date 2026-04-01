@@ -212,6 +212,47 @@ def analyze_portfolio():
         return jsonify({'error': str(e)}), 500
 
 
+# ── Stock AI analysis ─────────────────────────────────────────────────────────
+
+@app.route('/api/ai/stock-analysis', methods=['POST'])
+def analyze_stocks():
+    if _gemini_client is None:
+        return jsonify({'error': 'AI analysis not available'}), 503
+
+    body = request.get_json()
+    if not body:
+        return jsonify({'error': 'No data provided'}), 400
+
+    stocks = body.get('stocks', [])
+    if not stocks:
+        return jsonify({'error': 'No stocks provided'}), 400
+
+    portfolio = body.get('portfolio', [])
+
+    prompt = load_prompt(
+        'stock_analysis',
+        stocks=json.dumps(stocks, indent=2),
+        portfolio=json.dumps(portfolio, indent=2) if portfolio else 'None provided'
+    )
+
+    try:
+        response = _gemini_client.models.generate_content(
+            model='gemini-2.5-flash',
+            contents=prompt
+        )
+        text = response.text.strip()
+        # Strip markdown code fences if present
+        if text.startswith('```'):
+            text = text.split('\n', 1)[1]
+            text = text.rsplit('```', 1)[0].strip()
+        result = json.loads(text)
+        return jsonify(result)
+    except json.JSONDecodeError as e:
+        return jsonify({'error': f'Failed to parse AI response: {e}'}), 500
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
 # ── Static file serving ────────────────────────────────────────────────────────
 
 @app.route('/', defaults={'path': ''})
