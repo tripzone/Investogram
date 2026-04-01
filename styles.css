@@ -1943,6 +1943,24 @@ button:active {
     }
 }
 
+@media (max-width: 768px) {
+    #watchlistGrid .stock-card {
+        width: 100%;
+    }
+
+    .watchlist-card-body {
+        flex-direction: row;
+    }
+
+    .watchlist-card-left {
+        flex: 0 0 140px;
+    }
+
+    .watchlist-card-left .chart-container {
+        height: 65px;
+    }
+}
+
 /* Upload Modal Styles */
 .upload-modal-content {
     max-width: 440px;
