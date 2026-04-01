@@ -20,6 +20,7 @@ class StockDashboard {
         this.resizing = null; // Track active resize operation
         this.latestPrices = null; // Map<symbol, { currentPrice, currency }>
         this.latestPricesState = 'idle'; // 'idle' | 'loading' | 'active' | 'error'
+        this.useCurrentPrices = true; // clock toggle: true = use market prices, false = use acquisition cost
         this.portfolioExcludedSymbols = this.loadPortfolioExcludedSymbols();
         this.availableGraphs = [
             {
@@ -45,6 +46,7 @@ class StockDashboard {
         this.setupUploadModal();
         this.setupGraphSelector();
         this.setupValuesToggle();
+        this.setupPortfolioRefresh();
         this.updateAvailableGraphs();
         this.updateDataIndicators();
 
@@ -186,6 +188,11 @@ class StockDashboard {
             if (this._pendingAnalysisMeasure) {
                 this._pendingAnalysisMeasure = false;
                 requestAnimationFrame(() => this._measureAnalysisToggle());
+            }
+
+            // Auto-fetch prices if clock is on and no prices yet
+            if (this.useCurrentPrices && this.latestPricesState === 'idle') {
+                this.fetchLatestPrices();
             }
         });
     }
@@ -664,6 +671,13 @@ class StockDashboard {
         toggleBtnMobile.addEventListener('click', onToggle);
     }
 
+    setupPortfolioRefresh() {
+        ['portfolioRefreshBtn', 'portfolioRefreshBtnMobile'].forEach(id => {
+            const btn = document.getElementById(id);
+            if (btn) btn.addEventListener('click', () => this.fetchLatestPrices());
+        });
+    }
+
     loadShowValuesPreference() {
         const saved = localStorage.getItem('show_values');
         return saved === 'true'; // Default to false (hidden)
@@ -1080,16 +1094,15 @@ class StockDashboard {
                 </div>
             ` : '';
 
-            // Add refresh button for allocation graphs (asset-allocation + category-*)
+            // Add clock toggle for allocation graphs (asset-allocation + category-*)
             const isAllocationGraph = graphId === 'asset-allocation' || graphId.startsWith('category-');
             const allocationRefreshBtn = isAllocationGraph ? `
-                <button class="allocation-refresh-btn ${this.latestPricesState}"
-                        title="Toggle latest price view"
-                        onclick="event.stopPropagation(); dashboard.handleAllocationRefresh()">
-                    <svg class="refresh-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-                        <path d="M23 4v6h-6"/>
-                        <path d="M1 20v-6h6"/>
-                        <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>
+                <button class="allocation-time-btn${this.useCurrentPrices ? '' : ' inactive'}"
+                        title="${this.useCurrentPrices ? 'Using current market prices' : 'Using acquisition prices'}"
+                        onclick="event.stopPropagation(); dashboard.toggleCurrentPrices()">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <circle cx="12" cy="12" r="10"></circle>
+                        <polyline points="12 6 12 12 16 14"></polyline>
                     </svg>
                 </button>
             ` : '';
@@ -1276,50 +1289,59 @@ class StockDashboard {
         });
     }
 
-    async handleAllocationRefresh() {
-        // Toggle off if already showing latest prices
-        if (this.latestPricesState === 'active') {
-            this.latestPrices = null;
-            this.latestPricesState = 'idle';
-            this.setAllocationRefreshState('idle');
-            this.rerenderAllocationGraphs();
-            return;
-        }
-
-        // Don't start a new fetch while one is in progress
+    async fetchLatestPrices() {
         if (this.latestPricesState === 'loading') return;
 
-        this.setAllocationRefreshState('loading');
+        this.setHeaderRefreshState('loading');
 
         try {
             const positionsData = this.loadPortfolioData('positions');
             if (!positionsData || positionsData.length === 0) {
-                this.setAllocationRefreshState('idle');
+                this.setHeaderRefreshState('idle');
                 return;
             }
 
             const symbols = [...new Set(positionsData.map(p => p.symbol))];
             this.latestPrices = await window.stockAPI.fetchPortfolioCurrentPrices(symbols);
 
-            if (this.latestPrices.size === 0) {
-                throw new Error('No prices fetched');
-            }
+            if (this.latestPrices.size === 0) throw new Error('No prices fetched');
 
             this.latestPricesState = 'active';
-            this.setAllocationRefreshState('active');
+            this.setHeaderRefreshState('active');
             this.rerenderAllocationGraphs();
         } catch (err) {
             console.error('Failed to fetch latest prices:', err);
             this.latestPrices = null;
             this.latestPricesState = 'error';
-            this.setAllocationRefreshState('error');
+            this.setHeaderRefreshState('error');
         }
     }
 
-    setAllocationRefreshState(state) {
+    toggleCurrentPrices() {
+        this.useCurrentPrices = !this.useCurrentPrices;
+        this.updateAllocationTimeBtns();
+
+        if (this.useCurrentPrices && this.latestPricesState === 'idle') {
+            this.fetchLatestPrices();
+        } else {
+            this.rerenderAllocationGraphs();
+        }
+    }
+
+    setHeaderRefreshState(state) {
         this.latestPricesState = state;
-        document.querySelectorAll('.allocation-refresh-btn').forEach(btn => {
-            btn.className = `allocation-refresh-btn ${state}`;
+        ['portfolioRefreshBtn', 'portfolioRefreshBtnMobile'].forEach(id => {
+            const btn = document.getElementById(id);
+            if (btn) btn.classList.toggle('loading', state === 'loading');
+        });
+    }
+
+    updateAllocationTimeBtns() {
+        document.querySelectorAll('.allocation-time-btn').forEach(btn => {
+            btn.classList.toggle('inactive', !this.useCurrentPrices);
+            btn.title = this.useCurrentPrices
+                ? 'Using current market prices'
+                : 'Using acquisition prices';
         });
     }
 
@@ -1442,7 +1464,7 @@ class StockDashboard {
         }
 
         // Convert all values to CAD — use latest market price if available, otherwise acquisition cost
-        const usingLatest = this.latestPricesState === 'active' && this.latestPrices;
+        const usingLatest = this.useCurrentPrices && this.latestPricesState === 'active' && this.latestPrices;
         const positionsInCAD = positionsData.map(pos => {
             let value, priceCurrency;
 
@@ -1730,7 +1752,7 @@ class StockDashboard {
         });
 
         // Convert all positions to CAD and add category value — use latest price if available
-        const usingLatest = this.latestPricesState === 'active' && this.latestPrices;
+        const usingLatest = this.useCurrentPrices && this.latestPricesState === 'active' && this.latestPrices;
         const positionsWithCategory = [];
         positionsData.forEach(pos => {
             const categoryValue = symbolToCategoryValue.get(pos.symbol);
