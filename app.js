@@ -170,6 +170,15 @@ class StockDashboard {
             portfolioControls.classList.add('hidden');
             uploadControls.classList.remove('visible');
             hideStockActions();
+
+            if (this._pendingBuyRecoMeasure) {
+                this._pendingBuyRecoMeasure = false;
+                requestAnimationFrame(() => this._measureBuyRecoToggle());
+            }
+            if (this._pendingBuyRecoPortfolioMeasure) {
+                this._pendingBuyRecoPortfolioMeasure = false;
+                requestAnimationFrame(() => this._measureBuyRecoPortfolioToggle());
+            }
         });
 
         portfolioTab.addEventListener('click', () => {
@@ -937,9 +946,43 @@ class StockDashboard {
         return card;
     }
 
+    _renderPortfolioAnalysisText(text) {
+        const clean = text
+            .replace(/\*\*/g, '')
+            .replace(/^(Analysis|Recommendation):\s*\n+/gim, '$1:\n');
+        return clean
+            .split(/\n\n+/)
+            .filter(p => p.trim())
+            .map(p => {
+                let t = p.trim();
+                t = t.replace(/^(Analysis|Recommendation):/i, (_, label) =>
+                    `<span class="ai-section-label">${label}:</span>`
+                );
+                t = t.replace(/\n(\d+\.)/g, '<br>$1');
+                t = t.replace(/<\/span><br>/g, '</span>');
+                return `<p>${t}</p>`;
+            })
+            .join('');
+    }
+
     async fetchPortfolioAnalysis(positions) {
         const body = document.getElementById('ai-analysis-body');
         if (!body) return;
+
+        // Check daily cache
+        const today = new Date().toISOString().split('T')[0];
+        const cached = localStorage.getItem(`ai_portfolio_analysis_${today}`);
+        if (cached) {
+            body.innerHTML = this._renderPortfolioAnalysisText(cached);
+            const portfolioView = document.getElementById('portfolioView');
+            if (portfolioView && !portfolioView.classList.contains('hidden')) {
+                this._measureAnalysisToggle();
+            } else {
+                this._pendingAnalysisMeasure = true;
+            }
+            return;
+        }
+
         try {
             const resp = await fetch('/api/analyze', {
                 method: 'POST',
@@ -950,25 +993,8 @@ class StockDashboard {
             if (data.error) {
                 body.textContent = 'Analysis unavailable.';
             } else {
-                const clean = data.analysis
-                    .replace(/\*\*/g, '')
-                    .replace(/^(Analysis|Recommendation):\s*\n+/gim, '$1:\n');
-                body.innerHTML = clean
-                    .split(/\n\n+/)
-                    .filter(p => p.trim())
-                    .map(p => {
-                        let text = p.trim();
-                        // Style section labels
-                        text = text.replace(/^(Analysis|Recommendation):/i, (_, label) =>
-                            `<span class="ai-section-label">${label}:</span>`
-                        );
-                        // Split numbered items onto their own lines
-                        text = text.replace(/\n(\d+\.)/g, '<br>$1');
-                        // Remove <br> immediately after a block-level section label span
-                        text = text.replace(/<\/span><br>/g, '</span>');
-                        return `<p>${text}</p>`;
-                    })
-                    .join('');
+                localStorage.setItem(`ai_portfolio_analysis_${today}`, data.analysis);
+                body.innerHTML = this._renderPortfolioAnalysisText(data.analysis);
             }
             const portfolioView = document.getElementById('portfolioView');
             if (portfolioView && !portfolioView.classList.contains('hidden')) {
@@ -999,6 +1025,8 @@ class StockDashboard {
         if (!raw) return;
         const positions = raw.filter(p => !this.portfolioExcludedSymbols.has(p.symbol?.toUpperCase()));
         if (!positions.length) return;
+        const today = new Date().toISOString().split('T')[0];
+        localStorage.removeItem(`ai_portfolio_analysis_${today}`);
         const body = document.getElementById('ai-analysis-body');
         if (body) {
             body.innerHTML = '<span class="ai-analysis-loading">Analyzing portfolio...</span>';
@@ -3423,6 +3451,8 @@ class StockDashboard {
         this.updateWatchlistEmptyState();
         await Promise.all(renderPromises);
         this.analyzeWatchlistWithAI();
+        this.fetchBuyRecommendations();
+        this.fetchBuyRecommendationsPortfolio();
     }
 
     createWatchlistCard(symbol) {
@@ -3984,6 +4014,222 @@ class StockDashboard {
         this.analyzeWatchlistWithAI();
     }
 
+    getCachedBuyRecommendations() {
+        const today = new Date().toISOString().split('T')[0];
+        const raw = localStorage.getItem(`ai_buy_recs_${today}`);
+        return raw ? JSON.parse(raw) : null;
+    }
+
+    refreshBuyRecommendations() {
+        const today = new Date().toISOString().split('T')[0];
+        localStorage.removeItem(`ai_buy_recs_${today}`);
+        this.fetchBuyRecommendations();
+    }
+
+    async fetchBuyRecommendations() {
+        const box = document.getElementById('watchlist-buy-box');
+        const body = document.getElementById('buy-reco-body');
+        if (!box || !body) return;
+
+        const symbols = this.stockList.filter(s => s);
+        if (!symbols.length) return;
+
+        box.classList.remove('hidden');
+
+        const cached = this.getCachedBuyRecommendations();
+        if (cached) {
+            this.renderBuyRecommendations(cached);
+            return;
+        }
+
+        body.innerHTML = '<span class="ai-analysis-loading">Scanning tracking list...</span>';
+
+        try {
+            const response = await fetch('/api/ai/buy-recommendations', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ symbols })
+            });
+            if (!response.ok) throw new Error(`HTTP ${response.status}`);
+            const data = await response.json();
+            if (data.error) throw new Error(data.error);
+            const today = new Date().toISOString().split('T')[0];
+            localStorage.setItem(`ai_buy_recs_${today}`, JSON.stringify(data));
+            this.renderBuyRecommendations(data);
+        } catch (err) {
+            console.error('Buy recommendations failed:', err);
+            body.innerHTML = '<span class="ai-analysis-loading">Recommendations unavailable.</span>';
+        }
+    }
+
+    renderBuyRecommendations(data) {
+        const body = document.getElementById('buy-reco-body');
+        if (!body) return;
+        const buys = data.buys || [];
+        if (!buys.length) {
+            body.innerHTML = '<span class="ai-analysis-loading">No strong buys identified in your tracking list today.</span>';
+        } else {
+            body.innerHTML = buys.map(b => `
+                <div class="buy-pick">
+                    <span class="ai-verdict buy buy-pick-badge">Buy</span>
+                    <span class="buy-pick-symbol">${b.symbol}</span>
+                    <span class="buy-pick-rationale">${b.rationale}</span>
+                </div>
+            `).join('');
+        }
+        this._measureBuyRecoToggle();
+    }
+
+    _measureBuyRecoToggle() {
+        const watchlistView = document.getElementById('watchlistView');
+        if (watchlistView && watchlistView.classList.contains('hidden')) {
+            this._pendingBuyRecoMeasure = true;
+            return;
+        }
+        const body = document.getElementById('buy-reco-body');
+        const toggle = document.getElementById('buy-reco-toggle');
+        if (!body || !toggle) return;
+        body.classList.remove('ai-analysis-collapsed');
+        const fullHeight = body.scrollHeight;
+        body.classList.add('ai-analysis-collapsed');
+        const collapsedHeight = body.clientHeight;
+        const needsToggle = fullHeight > collapsedHeight + 2;
+        toggle.style.display = needsToggle ? 'block' : 'none';
+        body.onclick = needsToggle ? () => this.expandBuyReco() : null;
+        if (!needsToggle) body.classList.remove('ai-analysis-collapsed');
+        toggle.textContent = 'Show more';
+    }
+
+    expandBuyReco() {
+        const body = document.getElementById('buy-reco-body');
+        const toggle = document.getElementById('buy-reco-toggle');
+        if (!body || !body.classList.contains('ai-analysis-collapsed')) return;
+        body.classList.remove('ai-analysis-collapsed');
+        body.onclick = null;
+        if (toggle) { toggle.textContent = 'Show less'; toggle.style.display = 'block'; }
+    }
+
+    toggleBuyReco() {
+        const body = document.getElementById('buy-reco-body');
+        const toggle = document.getElementById('buy-reco-toggle');
+        if (!body || !toggle) return;
+        const collapsed = body.classList.toggle('ai-analysis-collapsed');
+        toggle.textContent = collapsed ? 'Show more' : 'Show less';
+        body.onclick = collapsed ? () => this.expandBuyReco() : null;
+    }
+
+    getCachedBuyRecommendationsPortfolio() {
+        const today = new Date().toISOString().split('T')[0];
+        const raw = localStorage.getItem(`ai_buy_recs_portfolio_${today}`);
+        return raw ? JSON.parse(raw) : null;
+    }
+
+    refreshBuyRecommendationsPortfolio() {
+        const today = new Date().toISOString().split('T')[0];
+        localStorage.removeItem(`ai_buy_recs_portfolio_${today}`);
+        this.fetchBuyRecommendationsPortfolio();
+    }
+
+    async fetchBuyRecommendationsPortfolio() {
+        const box = document.getElementById('watchlist-buy-box-portfolio');
+        const body = document.getElementById('buy-reco-portfolio-body');
+        if (!box || !body) return;
+
+        const symbols = this.stockList.filter(s => s);
+        if (!symbols.length) return;
+
+        const rawPositions = JSON.parse(localStorage.getItem('portfolio_positions') || '[]');
+        const portfolio = rawPositions.map(p => ({
+            symbol: p.symbol,
+            quantity: p.quantity,
+            average_entry_price: p.average_entry_price,
+            currency: p.currency
+        }));
+
+        box.classList.remove('hidden');
+
+        const cached = this.getCachedBuyRecommendationsPortfolio();
+        if (cached) {
+            this.renderBuyRecommendationsPortfolio(cached);
+            return;
+        }
+
+        body.innerHTML = '<span class="ai-analysis-loading">Scanning tracking list with portfolio context...</span>';
+
+        try {
+            const response = await fetch('/api/ai/buy-recommendations', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ symbols, portfolio: portfolio.length ? portfolio : undefined })
+            });
+            if (!response.ok) throw new Error(`HTTP ${response.status}`);
+            const data = await response.json();
+            if (data.error) throw new Error(data.error);
+            const today = new Date().toISOString().split('T')[0];
+            localStorage.setItem(`ai_buy_recs_portfolio_${today}`, JSON.stringify(data));
+            this.renderBuyRecommendationsPortfolio(data);
+        } catch (err) {
+            console.error('Buy recommendations (portfolio) failed:', err);
+            body.innerHTML = '<span class="ai-analysis-loading">Recommendations unavailable.</span>';
+        }
+    }
+
+    renderBuyRecommendationsPortfolio(data) {
+        const body = document.getElementById('buy-reco-portfolio-body');
+        if (!body) return;
+        const buys = data.buys || [];
+        if (!buys.length) {
+            body.innerHTML = '<span class="ai-analysis-loading">No strong buys identified given your existing portfolio.</span>';
+        } else {
+            body.innerHTML = buys.map(b => `
+                <div class="buy-pick">
+                    <span class="ai-verdict buy buy-pick-badge">Buy</span>
+                    <span class="buy-pick-symbol">${b.symbol}</span>
+                    <span class="buy-pick-rationale">${b.rationale}</span>
+                </div>
+            `).join('');
+        }
+        this._measureBuyRecoPortfolioToggle();
+    }
+
+    _measureBuyRecoPortfolioToggle() {
+        const watchlistView = document.getElementById('watchlistView');
+        if (watchlistView && watchlistView.classList.contains('hidden')) {
+            this._pendingBuyRecoPortfolioMeasure = true;
+            return;
+        }
+        const body = document.getElementById('buy-reco-portfolio-body');
+        const toggle = document.getElementById('buy-reco-portfolio-toggle');
+        if (!body || !toggle) return;
+        body.classList.remove('ai-analysis-collapsed');
+        const fullHeight = body.scrollHeight;
+        body.classList.add('ai-analysis-collapsed');
+        const collapsedHeight = body.clientHeight;
+        const needsToggle = fullHeight > collapsedHeight + 2;
+        toggle.style.display = needsToggle ? 'block' : 'none';
+        body.onclick = needsToggle ? () => this.expandBuyRecoPortfolio() : null;
+        if (!needsToggle) body.classList.remove('ai-analysis-collapsed');
+        toggle.textContent = 'Show more';
+    }
+
+    expandBuyRecoPortfolio() {
+        const body = document.getElementById('buy-reco-portfolio-body');
+        const toggle = document.getElementById('buy-reco-portfolio-toggle');
+        if (!body || !body.classList.contains('ai-analysis-collapsed')) return;
+        body.classList.remove('ai-analysis-collapsed');
+        body.onclick = null;
+        if (toggle) { toggle.textContent = 'Show less'; toggle.style.display = 'block'; }
+    }
+
+    toggleBuyRecoPortfolio() {
+        const body = document.getElementById('buy-reco-portfolio-body');
+        const toggle = document.getElementById('buy-reco-portfolio-toggle');
+        if (!body || !toggle) return;
+        const collapsed = body.classList.toggle('ai-analysis-collapsed');
+        toggle.textContent = collapsed ? 'Show more' : 'Show less';
+        body.onclick = collapsed ? () => this.expandBuyRecoPortfolio() : null;
+    }
+
     setAIBarStatus(text, loading = false) {
         const status = document.getElementById('ai-bar-status');
         const btn = document.getElementById('aiRefreshBtn');
@@ -4104,6 +4350,7 @@ class StockDashboard {
         aiSection.innerHTML = `
             <div class="ai-verdict-row">
                 <div class="ai-verdict ${verdict}">${label}</div>
+                <button class="ai-collapse-btn" title="Collapse AI output">▴</button>
                 ${analysis.rationale ? `<div class="ai-rationale">${analysis.rationale}</div>` : ''}
             </div>
             <div class="ai-body">
@@ -4111,6 +4358,16 @@ class StockDashboard {
                 ${detailsHTML}
             </div>
         `;
+
+        // Wire collapse button
+        const collapseBtn = aiSection.querySelector('.ai-collapse-btn');
+        if (collapseBtn) {
+            collapseBtn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                const collapsed = card.classList.toggle('ai-collapsed');
+                collapseBtn.textContent = collapsed ? '▾' : '▴';
+            });
+        }
 
         // ai-description (below card body): shown on mobile only, hidden on desktop via CSS
         const aiDesc = card.querySelector('.ai-description');

@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Stock Dashboard</title>
-    <link rel="stylesheet" href="styles.css?v=48">
+    <link rel="stylesheet" href="styles.css?v=53">
     <!-- Firebase SDK (compat) -->
     <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-auth-compat.js"></script>
@@ -157,6 +157,34 @@
         </div>
 
         <div id="watchlistView" class="tab-content hidden">
+            <div id="watchlist-buy-box" class="ai-analysis-card buy-reco-box hidden">
+                <div class="ai-analysis-header">
+                    <span class="ai-analysis-label">AI Buy Picks — Tracking List</span>
+                    <button class="ai-analysis-refresh-btn" onclick="dashboard.refreshBuyRecommendations()" title="Refresh buy recommendations">
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M23 4v6h-6"/><path d="M1 20v-6h6"/>
+                            <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>
+                        </svg>
+                    </button>
+                </div>
+                <div id="buy-reco-body" class="ai-analysis-body">
+                    <span class="ai-analysis-loading">Analyzing tracking list...</span>
+                </div>
+                <button class="ai-analysis-toggle" id="buy-reco-toggle" onclick="dashboard.toggleBuyReco()" style="display:none">Show more</button>
+            </div>
+            <div id="watchlist-buy-box-portfolio" class="ai-analysis-card buy-reco-box hidden">
+                <div class="ai-analysis-header">
+                    <span class="ai-analysis-label">AI Buy Picks — With Portfolio Context</span>
+                    <button class="ai-analysis-refresh-btn" onclick="dashboard.refreshBuyRecommendationsPortfolio()" title="Refresh">
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M23 4v6h-6"/><path d="M1 20v-6h6"/>
+                            <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>
+                        </svg>
+                    </button>
+                </div>
+                <div id="buy-reco-portfolio-body" class="ai-analysis-body"></div>
+                <button class="ai-analysis-toggle" id="buy-reco-portfolio-toggle" onclick="dashboard.toggleBuyRecoPortfolio()" style="display:none">Show more</button>
+            </div>
             <div id="watchlistGrid" class="stock-grid">
                 <!-- Watchlist cards will be dynamically inserted here -->
             </div>
@@ -406,7 +434,7 @@
     </style>
 
     <script src="api.js?v=9"></script>
-    <script src="app.js?v=65"></script>
+    <script src="app.js?v=72"></script>
     <script src="firebase-config.js"></script>
     <script src="auth.js"></script>
 </body>

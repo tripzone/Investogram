@@ -508,6 +508,47 @@ h1 {
     font-size: 0.82rem;
 }
 
+/* Buy recommendations box */
+.buy-reco-box {
+    margin-bottom: 12px;
+}
+
+.buy-reco-box.hidden {
+    display: none;
+}
+
+#buy-reco-body {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.buy-pick {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.buy-pick-badge {
+    font-size: 0.65rem;
+    padding: 2px 7px;
+    flex-shrink: 0;
+}
+
+.buy-pick-symbol {
+    font-size: 0.88rem;
+    font-weight: 600;
+    color: #e0e0e0;
+    flex-shrink: 0;
+}
+
+.buy-pick-rationale {
+    font-size: 0.82rem;
+    color: #c0cce8;
+    line-height: 1.4;
+}
+
 .portfolio-filter-bar {
     grid-column: 1 / -1;
     display: flex;
@@ -1370,14 +1411,42 @@ button:active {
 #aiRefreshBtn:disabled { opacity: 0.3; cursor: default; }
 
 .ai-verdict-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
     margin-bottom: 8px;
+}
+
+.ai-collapse-btn {
+    background: none;
+    border: none;
+    cursor: pointer;
+    color: #555;
+    font-size: 0.7rem;
+    padding: 0 2px;
+    line-height: 1;
+    margin-left: auto;
+    flex-shrink: 0;
+}
+
+.ai-collapse-btn:hover {
+    color: #999;
+}
+
+.stock-card.ai-collapsed .ai-body {
+    display: none;
+}
+
+.stock-card.ai-collapsed .ai-description {
+    display: none !important;
 }
 
 .ai-rationale {
     font-size: 0.75rem;
     color: #888;
     line-height: 1.4;
-    margin-top: 5px;
+    flex-basis: 100%;
 }
 
 .ai-verdict {
@@ -1964,8 +2033,12 @@ button:active {
         height: 65px;
     }
 
-    /* On mobile: verdict only in right column, body content hidden */
+    /* On mobile: verdict only in right column, body content and rationale hidden */
     #watchlistGrid .ai-section .ai-body {
+        display: none;
+    }
+
+    #watchlistGrid .ai-section .ai-rationale {
         display: none;
     }
 

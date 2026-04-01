@@ -214,6 +214,46 @@ def analyze_portfolio():
 
 # ── Stock AI analysis ─────────────────────────────────────────────────────────
 
+@app.route('/api/ai/buy-recommendations', methods=['POST'])
+def buy_recommendations():
+    if _gemini_client is None:
+        return jsonify({'error': 'AI analysis not available'}), 503
+
+    body = request.get_json()
+    if not body:
+        return jsonify({'error': 'No data provided'}), 400
+
+    symbols = body.get('symbols', [])
+    if not symbols:
+        return jsonify({'error': 'No symbols provided'}), 400
+
+    portfolio = body.get('portfolio', None)
+    if portfolio:
+        prompt = load_prompt(
+            'buy_recommendations_portfolio',
+            symbols=', '.join(symbols),
+            portfolio=json.dumps(portfolio, indent=2)
+        )
+    else:
+        prompt = load_prompt('buy_recommendations', symbols=', '.join(symbols))
+
+    try:
+        response = _gemini_client.models.generate_content(
+            model='gemini-2.5-flash',
+            contents=prompt
+        )
+        text = response.text.strip()
+        if text.startswith('```'):
+            text = text.split('\n', 1)[1]
+            text = text.rsplit('```', 1)[0].strip()
+        result = json.loads(text)
+        return jsonify(result)
+    except json.JSONDecodeError as e:
+        return jsonify({'error': f'Failed to parse AI response: {e}'}), 500
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
 @app.route('/api/ai/stock-analysis', methods=['POST'])
 def analyze_stocks():
     if _gemini_client is None:
