@@ -112,6 +112,12 @@ h1 {
     display: none;
 }
 
+.upload-controls-mobile {
+    display: none;
+    align-items: center;
+    gap: 4px;
+}
+
 .upload-controls {
     display: none;
     align-items: center;
@@ -123,93 +129,33 @@ h1 {
     display: flex;
 }
 
-.data-indicator {
-    display: flex;
-    align-items: center;
-    gap: 2px;
-}
-
-.indicator-label {
-    font-size: 11px;
-    font-weight: 600;
-    color: #666;
-    letter-spacing: 0.5px;
-}
-
-.indicator-check {
-    font-size: 10px;
-    color: #48bb78;
-    line-height: 1;
-}
-
-.indicator-check.hidden {
-    display: none;
-}
 
 .upload-icon-btn {
-    background: transparent;
-    color: #666;
-    border: 1px solid #2a2a2a;
-    border-radius: 3px;
-    width: 28px;
-    height: 28px;
-    padding: 0;
     display: flex;
     align-items: center;
     justify-content: center;
-    cursor: pointer;
-    transition: all 0.2s;
+    color: #666;
 }
 
 .upload-icon-btn:hover {
-    background: #242424;
     color: #aaa;
-    border-color: #333;
-}
-
-.upload-icon-btn:active {
-    transform: scale(0.95);
-}
-
-.upload-icon-btn svg {
-    width: 14px;
-    height: 14px;
 }
 
 .toggle-values-btn {
-    background: transparent;
-    color: #666;
-    border: 1px solid #2a2a2a;
-    border-radius: 3px;
-    width: 28px;
-    height: 28px;
-    padding: 0;
     display: flex;
     align-items: center;
     justify-content: center;
-    cursor: pointer;
-    transition: all 0.2s;
+    color: #666;
 }
 
 .toggle-values-btn:hover {
-    background: #242424;
     color: #aaa;
-    border-color: #333;
 }
 
 .toggle-values-btn.active {
     background: #2a2a2a;
     color: #48bb78;
     border-color: #48bb78;
-}
-
-.toggle-values-btn:active {
-    transform: scale(0.95);
-}
-
-.toggle-values-btn svg {
-    width: 14px;
-    height: 14px;
 }
 
 .stock-action-btns {
@@ -1467,12 +1413,21 @@ button:active {
         justify-content: flex-start;
     }
 
-    /* Mobile: hide header copy, show controls copy */
+    /* Mobile: hide header copies, show controls copies */
     .stock-action-desktop {
         display: none;
     }
 
     .stock-action-mobile {
+        display: flex;
+        order: -1;
+    }
+
+    .upload-controls-desktop.visible {
+        display: none;
+    }
+
+    .upload-controls-mobile {
         display: flex;
     }
 
@@ -1490,6 +1445,12 @@ button:active {
 
     .add-graph-form {
         flex: 1;
+    }
+
+    .graph-selector-wrapper {
+        display: flex;
+        flex: 1;
+        min-width: 0;
     }
 
     #graphInput {
@@ -1826,6 +1787,101 @@ button:active {
     color: #888;
 }
 
+.upload-step.hidden {
+    display: none;
+}
+
+.upload-step-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 16px;
+}
+
+.upload-step-header .upload-modal-title {
+    margin-bottom: 0;
+}
+
+.upload-back-btn {
+    background: transparent;
+    border: none;
+    color: #555;
+    cursor: pointer;
+    padding: 4px;
+    display: flex;
+    align-items: center;
+    border-radius: 3px;
+    transition: all 0.2s;
+}
+
+.upload-back-btn:hover {
+    color: #aaa;
+    background: #2a2a2a;
+}
+
+.upload-source-options {
+    display: flex;
+    gap: 8px;
+}
+
+.upload-source-option {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 10px;
+    padding: 18px 12px;
+    background: #1a1a1a;
+    border: 1px solid #333;
+    border-radius: 3px;
+    cursor: pointer;
+    transition: all 0.2s;
+    flex: 1;
+    color: #888;
+}
+
+.upload-source-option:hover:not(:disabled) {
+    background: #2a2a2a;
+    border-color: #444;
+    color: #aaa;
+}
+
+.upload-source-option:disabled {
+    opacity: 0.35;
+    cursor: not-allowed;
+}
+
+.upload-source-icon {
+    color: #555;
+    display: flex;
+}
+
+.upload-source-option:hover:not(:disabled) .upload-source-icon {
+    color: #888;
+}
+
+.upload-source-label {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 3px;
+}
+
+.upload-source-label strong {
+    font-size: 11px;
+    font-weight: 600;
+    color: inherit;
+    letter-spacing: 0.3px;
+}
+
+.upload-source-label small {
+    font-size: 10px;
+    color: #444;
+}
+
+.upload-source-option:hover:not(:disabled) .upload-source-label small {
+    color: #666;
+}
+
 .upload-modal-title {
     font-size: 13px;
     font-weight: 500;
@@ -1858,6 +1914,7 @@ button:active {
     cursor: pointer;
     transition: all 0.2s;
     flex: 1;
+    position: relative;
 }
 
 .upload-type-option:hover {
@@ -1866,15 +1923,41 @@ button:active {
 }
 
 .upload-type-option input[type="radio"] {
-    width: 16px;
-    height: 16px;
-    cursor: pointer;
-    margin: 0;
+    position: absolute;
+    opacity: 0;
+    width: 0;
+    height: 0;
+    pointer-events: none;
 }
 
 .upload-type-option:has(input[type="radio"]:checked) {
     border-color: #667eea;
-    background: #1a1a1a;
+    background: #1e1e2e;
+}
+
+.upload-type-option.has-data {
+    border-color: #2d5a3d;
+}
+
+.upload-type-option.has-data .upload-type-label strong {
+    color: #48bb78;
+}
+
+.upload-type-option.has-data:has(input[type="radio"]:checked) {
+    border-color: #667eea;
+    background: #1e1e2e;
+}
+
+.upload-type-check {
+    font-size: 11px;
+    color: #48bb78;
+    display: none;
+    line-height: 1;
+    font-weight: 600;
+}
+
+.upload-type-option.has-data .upload-type-check {
+    display: block;
 }
 
 .upload-type-label {
@@ -1905,6 +1988,12 @@ button:active {
     border: 1px dashed #333;
     border-radius: 3px;
     background: #1a1a1a;
+    transition: border-color 0.15s, background 0.15s;
+}
+
+.upload-area.drag-active {
+    border-color: #667eea;
+    background: #1e1e2e;
 }
 
 .select-file-btn {

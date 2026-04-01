@@ -198,10 +198,29 @@ class StockDashboard {
         const selectFileBtn = document.getElementById('selectFileBtn');
         const fileInput = document.getElementById('fileInput');
         const confirmUploadBtn = document.getElementById('confirmUploadBtn');
+        const fileUploadSourceBtn = document.getElementById('fileUploadSourceBtn');
+        const uploadBackBtn = document.getElementById('uploadBackBtn');
+        const uploadBtnMobile = document.getElementById('uploadBtnMobile');
 
-        // Open upload modal
+        // Open upload modal (source picker)
         uploadBtn.addEventListener('click', () => {
             this.openUploadModal();
+        });
+
+        uploadBtnMobile.addEventListener('click', () => {
+            this.openUploadModal();
+        });
+
+        // Source picker: File Upload
+        fileUploadSourceBtn.addEventListener('click', () => {
+            document.getElementById('uploadSourceStep').classList.add('hidden');
+            document.getElementById('uploadFileStep').classList.remove('hidden');
+            this.updateDataIndicators();
+        });
+
+        // Back to source picker
+        uploadBackBtn.addEventListener('click', () => {
+            this.resetUploadModal();
         });
 
         // Close modal handlers
@@ -228,6 +247,24 @@ class StockDashboard {
             this.handleFileSelect(e.target.files[0]);
         });
 
+        // Drag and drop on upload area
+        const uploadArea = document.querySelector('.upload-area');
+        uploadArea.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            uploadArea.classList.add('drag-active');
+        });
+        uploadArea.addEventListener('dragleave', (e) => {
+            if (!uploadArea.contains(e.relatedTarget)) {
+                uploadArea.classList.remove('drag-active');
+            }
+        });
+        uploadArea.addEventListener('drop', (e) => {
+            e.preventDefault();
+            uploadArea.classList.remove('drag-active');
+            const file = e.dataTransfer.files[0];
+            if (file) this.handleFileSelect(file);
+        });
+
         // Confirm upload
         confirmUploadBtn.addEventListener('click', () => {
             this.handleUpload();
@@ -247,6 +284,11 @@ class StockDashboard {
     }
 
     resetUploadModal() {
+        // Reset to source step
+        document.getElementById('uploadSourceStep').classList.remove('hidden');
+        document.getElementById('uploadFileStep').classList.add('hidden');
+
+        // Clear file selection
         const fileInput = document.getElementById('fileInput');
         const fileInfo = document.getElementById('fileInfo');
         const uploadError = document.getElementById('uploadError');
@@ -578,60 +620,48 @@ class StockDashboard {
     }
 
     updateDataIndicators() {
-        const positionsIndicator = document.getElementById('positionsIndicator');
-        const tradesIndicator = document.getElementById('tradesIndicator');
-        const categoriesIndicator = document.getElementById('categoriesIndicator');
-
-        // Check if positions data exists
         const positionsData = this.loadPortfolioData('positions');
-        const positionsCheck = positionsIndicator.querySelector('.indicator-check');
-        if (positionsData && positionsData.length > 0) {
-            positionsCheck.classList.remove('hidden');
-        } else {
-            positionsCheck.classList.add('hidden');
-        }
-
-        // Check if trades data exists
         const tradesData = this.loadPortfolioData('trades');
-        const tradesCheck = tradesIndicator.querySelector('.indicator-check');
-        if (tradesData && tradesData.length > 0) {
-            tradesCheck.classList.remove('hidden');
-        } else {
-            tradesCheck.classList.add('hidden');
-        }
-
-        // Check if categories data exists
         const categoriesData = this.loadCategoriesData();
-        const categoriesCheck = categoriesIndicator.querySelector('.indicator-check');
-        if (categoriesData && categoriesData.length > 0) {
-            categoriesCheck.classList.remove('hidden');
-        } else {
-            categoriesCheck.classList.add('hidden');
+
+        const hasData = {
+            positions: positionsData && positionsData.length > 0,
+            trades: tradesData && tradesData.length > 0,
+            categories: categoriesData && categoriesData.length > 0,
+        };
+
+        const idMap = {
+            positions: 'typeOptionPositions',
+            trades: 'typeOptionTrades',
+            categories: 'typeOptionCategories',
+        };
+
+        for (const [type, id] of Object.entries(idMap)) {
+            const el = document.getElementById(id);
+            if (el) el.classList.toggle('has-data', hasData[type]);
         }
     }
 
     setupValuesToggle() {
         const toggleBtn = document.getElementById('toggleValuesBtn');
+        const toggleBtnMobile = document.getElementById('toggleValuesBtnMobile');
 
-        // Set initial state
-        if (this.showValues) {
-            toggleBtn.classList.add('active');
-        }
+        const syncActiveState = () => {
+            toggleBtn.classList.toggle('active', this.showValues);
+            toggleBtnMobile.classList.toggle('active', this.showValues);
+        };
 
-        // Toggle on click
-        toggleBtn.addEventListener('click', () => {
+        syncActiveState();
+
+        const onToggle = () => {
             this.showValues = !this.showValues;
             this.saveShowValuesPreference(this.showValues);
-
-            if (this.showValues) {
-                toggleBtn.classList.add('active');
-            } else {
-                toggleBtn.classList.remove('active');
-            }
-
-            // Re-render portfolio graphs to apply changes
+            syncActiveState();
             this.renderPortfolioGraphs();
-        });
+        };
+
+        toggleBtn.addEventListener('click', onToggle);
+        toggleBtnMobile.addEventListener('click', onToggle);
     }
 
     loadShowValuesPreference() {

@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Stock Dashboard</title>
-    <link rel="stylesheet" href="styles.css?v=35">
+    <link rel="stylesheet" href="styles.css?v=41">
     <!-- Firebase SDK (compat) -->
     <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-auth-compat.js"></script>
@@ -23,7 +23,7 @@
                     <button id="stocksTab" class="tab-btn active">Tracking</button>
                     <button id="watchlistTab" class="tab-btn">Watchlist</button>
                     <button id="portfolioTab" class="tab-btn">Portfolio</button>
-                    <div class="upload-controls">
+                    <div class="upload-controls upload-controls-desktop">
                         <button id="uploadBtn" class="upload-icon-btn" title="Upload portfolio data">
                             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                                 <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
@@ -31,18 +31,6 @@
                                 <line x1="12" y1="3" x2="12" y2="15"></line>
                             </svg>
                         </button>
-                        <div id="positionsIndicator" class="data-indicator" title="Positions data">
-                            <span class="indicator-label">P</span>
-                            <span class="indicator-check hidden">✓</span>
-                        </div>
-                        <div id="tradesIndicator" class="data-indicator" title="Trades data">
-                            <span class="indicator-label">T</span>
-                            <span class="indicator-check hidden">✓</span>
-                        </div>
-                        <div id="categoriesIndicator" class="data-indicator" title="Categories data">
-                            <span class="indicator-label">C</span>
-                            <span class="indicator-check hidden">✓</span>
-                        </div>
                         <button id="toggleValuesBtn" class="toggle-values-btn" title="Toggle dollar values visibility">
                             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                                 <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
@@ -53,8 +41,8 @@
                 </div>
                 <!-- Desktop: action buttons sit right of tabs -->
                 <div class="stock-action-btns stock-action-desktop">
-                    <button onclick="dashboard.collapseAllCards()" title="Collapse all cards">◢◣</button>
-                    <button onclick="dashboard.expandAllCards()" title="Expand all cards">◥◤</button>
+                    <button onclick="dashboard.collapseAllCards()" title="Collapse all cards">▲</button>
+                    <button onclick="dashboard.expandAllCards()" title="Expand all cards">▼</button>
                     <button onclick="dashboard.refreshAllStocks()" title="Refresh">
                         <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                             <polyline points="23 4 23 10 17 10"/>
@@ -82,8 +70,8 @@
                 </div>
                 <!-- Mobile: action buttons sit beside add form on row 2 -->
                 <div class="stock-action-btns stock-action-mobile">
-                    <button onclick="dashboard.collapseAllCards()" title="Collapse all cards">◢◣</button>
-                    <button onclick="dashboard.expandAllCards()" title="Expand all cards">◥◤</button>
+                    <button onclick="dashboard.collapseAllCards()" title="Collapse all cards">▲</button>
+                    <button onclick="dashboard.expandAllCards()" title="Expand all cards">▼</button>
                     <button onclick="dashboard.refreshAllStocks()" title="Refresh">
                         <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                             <polyline points="23 4 23 10 17 10"/>
@@ -104,6 +92,22 @@
                 </div>
             </div>
             <div class="controls portfolio-controls hidden">
+                <!-- Mobile: upload/eye buttons sit left of the graph input -->
+                <div class="upload-controls-mobile">
+                    <button id="uploadBtnMobile" class="upload-icon-btn" title="Upload portfolio data">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                            <polyline points="17 8 12 3 7 8"></polyline>
+                            <line x1="12" y1="3" x2="12" y2="15"></line>
+                        </svg>
+                    </button>
+                    <button id="toggleValuesBtnMobile" class="toggle-values-btn" title="Toggle dollar values visibility">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
+                            <circle cx="12" cy="12" r="3"></circle>
+                        </svg>
+                    </button>
+                </div>
                 <div class="add-graph-form">
                     <div class="graph-selector-wrapper">
                         <input
@@ -178,40 +182,93 @@
     <div id="uploadModal" class="modal hidden">
         <div class="modal-content upload-modal-content">
             <button id="uploadModalCloseBtn" class="modal-close-btn-visible">×</button>
-            <h2 class="upload-modal-title">Upload Data</h2>
-            <div class="upload-modal-body">
-                <div class="upload-type-selector">
-                    <label class="upload-type-option">
-                        <input type="radio" name="uploadType" value="positions" checked>
-                        <span class="upload-type-label">
-                            <strong>Positions</strong>
-                            <small>Holdings</small>
+
+            <!-- Step 1: Source Picker -->
+            <div id="uploadSourceStep" class="upload-step">
+                <h2 class="upload-modal-title">Add Data</h2>
+                <div class="upload-source-options">
+                    <button class="upload-source-option" disabled>
+                        <svg class="upload-source-icon" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
+                            <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
+                        </svg>
+                        <span class="upload-source-label">
+                            <strong>Manual Edits</strong>
+                            <small>Coming soon</small>
                         </span>
-                    </label>
-                    <label class="upload-type-option">
-                        <input type="radio" name="uploadType" value="trades">
-                        <span class="upload-type-label">
-                            <strong>Trades</strong>
-                            <small>History</small>
+                    </button>
+                    <button id="fileUploadSourceBtn" class="upload-source-option">
+                        <svg class="upload-source-icon" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                            <polyline points="17 8 12 3 7 8"></polyline>
+                            <line x1="12" y1="3" x2="12" y2="15"></line>
+                        </svg>
+                        <span class="upload-source-label">
+                            <strong>File Upload</strong>
+                            <small>Import CSV</small>
                         </span>
-                    </label>
-                    <label class="upload-type-option">
-                        <input type="radio" name="uploadType" value="categories">
-                        <span class="upload-type-label">
-                            <strong>Categories</strong>
-                            <small>Classification</small>
+                    </button>
+                    <button class="upload-source-option" disabled>
+                        <svg class="upload-source-icon" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <polyline points="23 4 23 10 17 10"/>
+                            <polyline points="1 20 1 14 7 14"/>
+                            <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>
+                        </svg>
+                        <span class="upload-source-label">
+                            <strong>Broker Sync</strong>
+                            <small>Coming soon</small>
                         </span>
-                    </label>
+                    </button>
                 </div>
-                <div class="upload-area">
-                    <input type="file" id="fileInput" accept=".csv" hidden>
-                    <button id="selectFileBtn" class="select-file-btn">Select File</button>
-                    <div id="fileInfo" class="file-info hidden"></div>
+            </div>
+
+            <!-- Step 2: File Upload -->
+            <div id="uploadFileStep" class="upload-step hidden">
+                <div class="upload-step-header">
+                    <button id="uploadBackBtn" class="upload-back-btn" title="Back">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <polyline points="15 18 9 12 15 6"></polyline>
+                        </svg>
+                    </button>
+                    <h2 class="upload-modal-title">File Upload</h2>
                 </div>
-                <div id="uploadError" class="upload-error hidden"></div>
-                <div class="upload-actions">
-                    <button id="cancelUploadBtn" class="cancel-btn">Cancel</button>
-                    <button id="confirmUploadBtn" class="confirm-btn" disabled>Upload</button>
+                <div class="upload-modal-body">
+                    <div class="upload-type-selector">
+                        <label class="upload-type-option" id="typeOptionPositions">
+                            <input type="radio" name="uploadType" value="positions" checked>
+                            <span class="upload-type-label">
+                                <strong>Positions</strong>
+                                <small>Holdings</small>
+                            </span>
+                            <span class="upload-type-check">✓</span>
+                        </label>
+                        <label class="upload-type-option" id="typeOptionTrades">
+                            <input type="radio" name="uploadType" value="trades">
+                            <span class="upload-type-label">
+                                <strong>Trades</strong>
+                                <small>History</small>
+                            </span>
+                            <span class="upload-type-check">✓</span>
+                        </label>
+                        <label class="upload-type-option" id="typeOptionCategories">
+                            <input type="radio" name="uploadType" value="categories">
+                            <span class="upload-type-label">
+                                <strong>Categories</strong>
+                                <small>Classification</small>
+                            </span>
+                            <span class="upload-type-check">✓</span>
+                        </label>
+                    </div>
+                    <div class="upload-area">
+                        <input type="file" id="fileInput" accept=".csv" hidden>
+                        <button id="selectFileBtn" class="select-file-btn">Select File</button>
+                        <div id="fileInfo" class="file-info hidden"></div>
+                    </div>
+                    <div id="uploadError" class="upload-error hidden"></div>
+                    <div class="upload-actions">
+                        <button id="cancelUploadBtn" class="cancel-btn">Cancel</button>
+                        <button id="confirmUploadBtn" class="confirm-btn" disabled>Upload</button>
+                    </div>
                 </div>
             </div>
         </div>
@@ -328,7 +385,7 @@
     </style>
 
     <script src="api.js?v=9"></script>
-    <script src="app.js?v=57"></script>
+    <script src="app.js?v=59"></script>
     <script src="firebase-config.js"></script>
     <script src="auth.js"></script>
 </body>
