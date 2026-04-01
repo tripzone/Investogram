@@ -1087,6 +1087,10 @@ button:active {
     display: none;
 }
 
+.stock-card.collapsed .ai-description {
+    display: none !important;
+}
+
 .stock-card.collapsed {
     cursor: pointer;
 }
@@ -1288,6 +1292,11 @@ button:active {
 }
 
 /* AI Analysis Section */
+/* ai-description: mobile-only zone below card body */
+.ai-description {
+    display: none;
+}
+
 /* Watchlist card layout */
 #watchlistGrid .stock-card {
     width: 560px;
@@ -1953,6 +1962,23 @@ button:active {
 
     .watchlist-card-left .chart-container {
         height: 65px;
+    }
+
+    /* On mobile: verdict only in right column, body content hidden */
+    #watchlistGrid .ai-section .ai-body {
+        display: none;
+    }
+
+    /* ai-description appears below the card body, full width */
+    #watchlistGrid .ai-description {
+        display: block;
+        border-top: 1px solid #333;
+        padding-top: 12px;
+        margin-top: 8px;
+    }
+
+    #watchlistGrid .ai-description.hidden {
+        display: none;
     }
 }
 

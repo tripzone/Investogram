@@ -3456,6 +3456,7 @@ class StockDashboard {
                 </div>
                 <div class="ai-section hidden"></div>
             </div>
+            <div class="ai-description hidden"></div>
         `;
 
         const metricsArea = card.querySelector('.stock-metrics');
@@ -4088,13 +4089,7 @@ class StockDashboard {
         const verdict = analysis.verdict || 'hold';
         const label = verdict.charAt(0).toUpperCase() + verdict.slice(1);
 
-        aiSection.classList.remove('hidden');
-        aiSection.innerHTML = `
-            <div class="ai-verdict-row">
-                <div class="ai-verdict ${verdict}">${label}</div>
-                ${analysis.rationale ? `<div class="ai-rationale">${analysis.rationale}</div>` : ''}
-            </div>
-            <div class="ai-summary">${analysis.summary}</div>
+        const detailsHTML = `
             <button class="ai-detail-toggle" onclick="this.nextElementSibling.classList.toggle('hidden'); this.textContent = this.nextElementSibling.classList.contains('hidden') ? 'Details ▾' : 'Details ▴'">Details ▾</button>
             <div class="ai-detail hidden">
                 <p><span class="ai-label">Valuation:</span> ${analysis.valuation}</p>
@@ -4103,6 +4098,30 @@ class StockDashboard {
                 <p><span class="ai-label">Long-term:</span> ${analysis.long_term}</p>
             </div>
         `;
+
+        // ai-section (right of graph): verdict + full content on desktop, verdict only on mobile (CSS hides the rest)
+        aiSection.classList.remove('hidden');
+        aiSection.innerHTML = `
+            <div class="ai-verdict-row">
+                <div class="ai-verdict ${verdict}">${label}</div>
+                ${analysis.rationale ? `<div class="ai-rationale">${analysis.rationale}</div>` : ''}
+            </div>
+            <div class="ai-body">
+                <div class="ai-summary">${analysis.summary}</div>
+                ${detailsHTML}
+            </div>
+        `;
+
+        // ai-description (below card body): shown on mobile only, hidden on desktop via CSS
+        const aiDesc = card.querySelector('.ai-description');
+        if (aiDesc) {
+            aiDesc.classList.remove('hidden');
+            aiDesc.innerHTML = `
+                ${analysis.rationale ? `<div class="ai-rationale">${analysis.rationale}</div>` : ''}
+                <div class="ai-summary">${analysis.summary}</div>
+                ${detailsHTML}
+            `;
+        }
     }
 
     createChart(symbol, data, context = 'tracking') {
