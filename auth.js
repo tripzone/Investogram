@@ -10,6 +10,7 @@
 // Anything not in this list stays local-only (caches, UI state, etc.)
 const SYNC_KEYS = [
     'stock_list',
+    'watchlist',
     'collapsed_stocks',
     'portfolio_graphs',
     'portfolio_positions',
@@ -47,6 +48,7 @@ async function pullFromServer() {
 
     // Snapshot guest-session data before server overwrites it
     const guestStocks = JSON.parse(localStorage.getItem('stock_list') || '[]');
+    const guestWatchlist = JSON.parse(localStorage.getItem('watchlist') || '[]');
     const guestGraphs = JSON.parse(localStorage.getItem('portfolio_graphs') || '[]');
 
     try {
@@ -77,6 +79,18 @@ async function pullFromServer() {
             if (newStocks.length > 0) {
                 _originalSetItem('stock_list', JSON.stringify([...serverStocks, ...newStocks]));
                 console.log(`[auth] Merged ${newStocks.length} guest stock(s) into account`);
+                needsPush = true;
+            }
+        }
+
+        // Watchlist: union by symbol string
+        if (guestWatchlist.length > 0) {
+            const serverWatchlist = JSON.parse(localStorage.getItem('watchlist') || '[]');
+            const serverSet = new Set(serverWatchlist);
+            const newItems = guestWatchlist.filter(s => !serverSet.has(s));
+            if (newItems.length > 0) {
+                _originalSetItem('watchlist', JSON.stringify([...serverWatchlist, ...newItems]));
+                console.log(`[auth] Merged ${newItems.length} guest watchlist item(s) into account`);
                 needsPush = true;
             }
         }
@@ -202,10 +216,12 @@ firebaseAuth.onAuthStateChanged(async (user) => {
         await pullFromServer();
         if (window.dashboard) {
             window.dashboard.stockList = window.dashboard.loadStockList();
+            window.dashboard.watchlist = window.dashboard.loadWatchlist();
             window.dashboard.updateAvailableGraphs();
             window.dashboard.portfolioGraphs = window.dashboard.loadPortfolioGraphs();
             window.dashboard.portfolioExcludedSymbols = window.dashboard.loadPortfolioExcludedSymbols();
             window.dashboard.renderAllStocks();
+            window.dashboard.renderAllWatchlistStocks();
             window.dashboard.renderPortfolioGraphs();
             window.dashboard.updateDataIndicators();
         }

@@ -46,10 +46,20 @@
                     </div>
                 </div>
                 <!-- Desktop: action buttons sit right of tabs -->
-                <div class="stock-action-btns stock-action-desktop">
+                <div class="stock-action-btns stock-action-desktop" id="trackingActionBtns">
                     <button onclick="dashboard.collapseAllCards()" title="Collapse all cards">▲</button>
                     <button onclick="dashboard.expandAllCards()" title="Expand all cards">▼</button>
                     <button onclick="dashboard.refreshAllStocks()" title="Refresh">
+                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <polyline points="23 4 23 10 17 10"/>
+                            <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/>
+                        </svg>
+                    </button>
+                </div>
+                <div class="stock-action-btns stock-action-desktop hidden" id="watchlistActionBtns">
+                    <button onclick="dashboard.collapseAllWatchlist()" title="Collapse all cards">▲</button>
+                    <button onclick="dashboard.expandAllWatchlist()" title="Expand all cards">▼</button>
+                    <button onclick="dashboard.refreshAllWatchlist()" title="Refresh all">
                         <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                             <polyline points="23 4 23 10 17 10"/>
                             <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/>
@@ -96,15 +106,17 @@
                     >
                     <button id="addWatchlistBtn">Add</button>
                 </div>
-                <div id="ai-bar">
-                    <span id="ai-bar-status"></span>
-                    <button id="aiRefreshBtn" onclick="dashboard.refreshAIAnalysis()" title="Regenerate AI analysis">
+                <div class="stock-action-btns stock-action-mobile">
+                    <button onclick="dashboard.collapseAllWatchlist()" title="Collapse all cards">▲</button>
+                    <button onclick="dashboard.expandAllWatchlist()" title="Expand all cards">▼</button>
+                    <button onclick="dashboard.refreshAllWatchlist()" title="Refresh all">
                         <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                             <polyline points="23 4 23 10 17 10"/>
                             <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/>
                         </svg>
                     </button>
                 </div>
+                <span id="ai-bar-status"></span>
             </div>
             <div class="controls portfolio-controls hidden">
                 <!-- Mobile: upload/eye buttons sit left of the graph input -->

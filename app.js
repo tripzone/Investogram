@@ -137,10 +137,19 @@ class StockDashboard {
         const watchlistControls = document.querySelector('.watchlist-controls');
         const portfolioControls = document.querySelector('.portfolio-controls');
         const uploadControls = document.querySelector('.upload-controls');
-        const stockActionBtns = document.querySelectorAll('.stock-action-btns');
+        const trackingActionBtns = document.querySelectorAll('.stock-action-btns');
+        const trackingDesktop = document.getElementById('trackingActionBtns');
+        const watchlistDesktop = document.getElementById('watchlistActionBtns');
 
-        const showStockActions = () => stockActionBtns.forEach(el => el.classList.remove('hidden'));
-        const hideStockActions = () => stockActionBtns.forEach(el => el.classList.add('hidden'));
+        const showStockActions = () => {
+            trackingActionBtns.forEach(el => el.classList.remove('hidden'));
+            if (watchlistDesktop) watchlistDesktop.classList.add('hidden');
+        };
+        const hideStockActions = () => trackingActionBtns.forEach(el => el.classList.add('hidden'));
+        const showWatchlistActions = () => {
+            if (trackingDesktop) trackingDesktop.classList.add('hidden');
+            if (watchlistDesktop) watchlistDesktop.classList.remove('hidden');
+        };
 
         stocksTab.addEventListener('click', () => {
             stocksTab.classList.add('active');
@@ -170,6 +179,7 @@ class StockDashboard {
             portfolioControls.classList.add('hidden');
             uploadControls.classList.remove('visible');
             hideStockActions();
+            showWatchlistActions();
 
             if (this._pendingBuyRecoMeasure) {
                 this._pendingBuyRecoMeasure = false;
@@ -194,6 +204,7 @@ class StockDashboard {
             portfolioControls.classList.remove('hidden');
             uploadControls.classList.add('visible');
             hideStockActions();
+            if (watchlistDesktop) watchlistDesktop.classList.add('hidden');
 
             if (this._pendingAnalysisMeasure) {
                 this._pendingAnalysisMeasure = false;
@@ -3471,6 +3482,10 @@ class StockDashboard {
                 </div>
                 <button class="remove-btn" onclick="dashboard.removeFromWatchlist('${symbol}')">×</button>
             </div>
+            <div class="collapsed-summary">
+                <div class="cs-metrics"></div>
+                <div class="cs-ratings"></div>
+            </div>
             <div class="watchlist-card-body">
                 <div class="watchlist-card-left">
                     <div class="watchlist-card-info">
@@ -3495,7 +3510,25 @@ class StockDashboard {
         const metricsArea = card.querySelector('.stock-metrics');
         metricsArea.addEventListener('click', (e) => {
             e.stopPropagation();
-            card.classList.toggle('collapsed');
+            const collapsed = card.classList.toggle('collapsed');
+            const collapsedStocks = this.getCollapsedStocks();
+            if (collapsed) {
+                if (!collapsedStocks.includes(symbol)) collapsedStocks.push(symbol);
+            } else {
+                const idx = collapsedStocks.indexOf(symbol);
+                if (idx > -1) collapsedStocks.splice(idx, 1);
+            }
+            this.saveCollapsedStocks(collapsedStocks);
+        });
+
+        card.addEventListener('click', (e) => {
+            if (card.classList.contains('collapsed') && !e.target.closest('.remove-btn')) {
+                card.classList.remove('collapsed');
+                const collapsedStocks = this.getCollapsedStocks();
+                const idx = collapsedStocks.indexOf(symbol);
+                if (idx > -1) collapsedStocks.splice(idx, 1);
+                this.saveCollapsedStocks(collapsedStocks);
+            }
         });
 
         card.addEventListener('dragstart', (e) => this.handleDragStart(e));
@@ -3942,17 +3975,32 @@ class StockDashboard {
     }
 
     expandAllCards() {
-        // Get all stock symbols and expand them
         this.stockList.forEach(entry => {
             const { symbol } = this.parseStockEntry(entry);
             const card = document.getElementById(`stock-${symbol}`);
-            if (card) {
-                card.classList.remove('collapsed');
-            }
+            if (card) card.classList.remove('collapsed');
         });
-
-        // Clear collapsed stocks list
         this.saveCollapsedStocks([]);
+    }
+
+    collapseAllWatchlist() {
+        this.watchlist.forEach(symbol => {
+            const card = document.getElementById(`watchlist-${symbol}`);
+            if (card) card.classList.add('collapsed');
+        });
+    }
+
+    expandAllWatchlist() {
+        this.watchlist.forEach(symbol => {
+            const card = document.getElementById(`watchlist-${symbol}`);
+            if (card) card.classList.remove('collapsed');
+        });
+    }
+
+    refreshAllWatchlist() {
+        stockAPI.cache.clear();
+        this.refreshAIAnalysis();
+        this.renderAllWatchlistStocks();
     }
 
     updateStockCard(symbol, data, context = 'tracking') {
@@ -3997,24 +4045,95 @@ class StockDashboard {
         // Store data for AI analysis calls (watchlist only)
         if (context === 'watchlist') {
             this.stockDataMap[symbol] = data;
-            // Restore cached AI analysis if available for today
-            const cached = this.getCachedAIAnalysis();
-            if (cached && cached[symbol]) {
-                this.updateCardWithAI(symbol, cached[symbol]);
+
+            // Populate collapsed summary metrics
+            const csMetrics = card.querySelector('.cs-metrics');
+            if (csMetrics) {
+                const arrow = data.isPositive ? '▲' : '▼';
+                const weeklyArrow = data.isWeeklyPositive ? '▲' : '▼';
+                csMetrics.innerHTML = `
+                    <span class="cs-change ${data.isPositive ? 'positive' : 'negative'}">${arrow} ${data.dayChangePercent}%</span>
+                    <div class="cs-secondary">
+                        <span class="cs-price">${data.currentPrice}</span>
+                        <span class="cs-7d ${data.isWeeklyPositive ? 'positive' : 'negative'}">${weeklyArrow} ${data.weeklyChangePercent}% 7d</span>
+                    </div>
+                `;
+            }
+
+            // Restore cached AI analysis if available for this week
+            const cached = this.getCachedStockAnalysis(symbol);
+            if (cached) {
+                this.updateCardWithAI(symbol, cached);
             }
         }
     }
 
-    getCachedAIAnalysis() {
-        const today = new Date().toISOString().split('T')[0];
-        const raw = localStorage.getItem(`ai_stock_analysis_${today}`);
+    getWeekKey() {
+        const d = new Date();
+        const jan1 = new Date(d.getFullYear(), 0, 1);
+        const week = Math.ceil(((d - jan1) / 86400000 + jan1.getDay() + 1) / 7);
+        return `${d.getFullYear()}-W${String(week).padStart(2, '0')}`;
+    }
+
+    getCachedStockAnalysis(symbol) {
+        const raw = localStorage.getItem(`ai_stock_${symbol}_${this.getWeekKey()}`);
         return raw ? JSON.parse(raw) : null;
     }
 
+    setCachedStockAnalysis(symbol, analysis) {
+        localStorage.setItem(`ai_stock_${symbol}_${this.getWeekKey()}`, JSON.stringify(analysis));
+    }
+
     refreshAIAnalysis() {
-        const today = new Date().toISOString().split('T')[0];
-        localStorage.removeItem(`ai_stock_analysis_${today}`);
+        const weekKey = this.getWeekKey();
+        this.watchlist.forEach(symbol => {
+            localStorage.removeItem(`ai_stock_${symbol}_${weekKey}`);
+        });
         this.analyzeWatchlistWithAI();
+    }
+
+    async refreshCardAnalysis(symbol) {
+        localStorage.removeItem(`ai_stock_${symbol}_${this.getWeekKey()}`);
+        const card = document.getElementById(`watchlist-${symbol}`);
+        if (!card) return;
+
+        const aiSection = card.querySelector('.ai-section');
+        if (aiSection) {
+            aiSection.classList.remove('hidden');
+            aiSection.innerHTML = '<div class="ai-loading">Analyzing...</div>';
+        }
+
+        const d = this.stockDataMap[symbol];
+        if (!d) return;
+
+        const rawPositions = JSON.parse(localStorage.getItem('portfolio_positions') || '[]');
+        const portfolio = rawPositions.map(p => ({
+            symbol: p.symbol,
+            quantity: p.quantity,
+            average_entry_price: p.average_entry_price,
+            currency: p.currency
+        }));
+
+        try {
+            const response = await fetch('/api/ai/stock-analysis', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    stocks: [{ symbol, currentPrice: d.currentPrice, vsMA50: d.vsMA50, vsMA200: d.vsMA200, dayChangePercent: d.dayChangePercent, weeklyChangePercent: d.weeklyChangePercent }],
+                    portfolio
+                })
+            });
+            if (!response.ok) throw new Error(`HTTP ${response.status}`);
+            const analysis = await response.json();
+            if (analysis.error) throw new Error(analysis.error);
+            if (analysis[symbol]) {
+                this.setCachedStockAnalysis(symbol, analysis[symbol]);
+                this.updateCardWithAI(symbol, analysis[symbol]);
+            }
+        } catch (err) {
+            console.error(`Refresh failed for ${symbol}:`, err);
+            if (aiSection) aiSection.innerHTML = '<div class="ai-error">Analysis unavailable</div>';
+        }
     }
 
     getCachedBuyRecommendations() {
@@ -4233,49 +4352,16 @@ class StockDashboard {
         body.onclick = collapsed ? () => this.expandBuyRecoPortfolio() : null;
     }
 
-    setAIBarStatus(text, loading = false) {
+    setAIBarStatus(text) {
         const status = document.getElementById('ai-bar-status');
-        const btn = document.getElementById('aiRefreshBtn');
         if (status) status.textContent = text;
-        if (btn) btn.disabled = loading;
     }
 
     async analyzeWatchlistWithAI() {
-        const btn = document.getElementById('aiRefreshBtn');
-
-        // Collect symbols from watchlist
         const symbols = this.watchlist.filter(s => s);
-
         if (!symbols.length) return;
 
-        // Check 24h cache
-        const cached = this.getCachedAIAnalysis();
-        if (cached) {
-            symbols.forEach(symbol => {
-                if (cached[symbol]) this.updateCardWithAI(symbol, cached[symbol]);
-            });
-            this.setAIBarStatus('AI · cached');
-            return;
-        }
-
-        // Build stocks payload from stored data
-        const stocks = symbols
-            .filter(symbol => this.stockDataMap[symbol])
-            .map(symbol => {
-                const d = this.stockDataMap[symbol];
-                return {
-                    symbol,
-                    currentPrice: d.currentPrice,
-                    vsMA50: d.vsMA50,
-                    vsMA200: d.vsMA200,
-                    dayChangePercent: d.dayChangePercent,
-                    weeklyChangePercent: d.weeklyChangePercent
-                };
-            });
-
-        if (!stocks.length) return;
-
-        // Portfolio context
+        // Portfolio context (shared across all calls)
         const rawPositions = JSON.parse(localStorage.getItem('portfolio_positions') || '[]');
         const portfolio = rawPositions.map(p => ({
             symbol: p.symbol,
@@ -4284,9 +4370,23 @@ class StockDashboard {
             currency: p.currency
         }));
 
-        // Show loading state
-        this.setAIBarStatus('AI · analyzing...', true);
-        symbols.forEach(symbol => {
+        // Split into cached vs. needing fetch
+        const uncached = symbols.filter(s => !this.getCachedStockAnalysis(s) && this.stockDataMap[s]);
+        const alreadyCached = symbols.filter(s => this.getCachedStockAnalysis(s));
+
+        // Render cached ones immediately
+        alreadyCached.forEach(symbol => {
+            this.updateCardWithAI(symbol, this.getCachedStockAnalysis(symbol));
+        });
+
+        if (!uncached.length) {
+            this.setAIBarStatus('AI · cached');
+            return;
+        }
+
+        // Show loading only on cards that need fetching
+        this.setAIBarStatus(`AI · analyzing ${uncached.length}...`);
+        uncached.forEach(symbol => {
             const card = document.getElementById(`watchlist-${symbol}`);
             if (!card) return;
             const aiSection = card.querySelector('.ai-section');
@@ -4296,37 +4396,51 @@ class StockDashboard {
             }
         });
 
-        try {
-            const response = await fetch('/api/ai/stock-analysis', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ stocks, portfolio })
-            });
-
-            if (!response.ok) throw new Error(`HTTP ${response.status}`);
-            const analysis = await response.json();
-            if (analysis.error) throw new Error(analysis.error);
-
-            // Cache for today
-            const today = new Date().toISOString().split('T')[0];
-            localStorage.setItem(`ai_stock_analysis_${today}`, JSON.stringify(analysis));
-
-            symbols.forEach(symbol => {
-                if (analysis[symbol]) this.updateCardWithAI(symbol, analysis[symbol]);
-            });
-            this.setAIBarStatus('AI · updated today');
-        } catch (err) {
-            console.error('AI analysis failed:', err);
-            symbols.forEach(symbol => {
+        // One call per uncached stock, fired in parallel
+        let completed = 0;
+        let failed = 0;
+        const analyzeOne = async (symbol) => {
+            const d = this.stockDataMap[symbol];
+            const stockPayload = [{
+                symbol,
+                currentPrice: d.currentPrice,
+                vsMA50: d.vsMA50,
+                vsMA200: d.vsMA200,
+                dayChangePercent: d.dayChangePercent,
+                weeklyChangePercent: d.weeklyChangePercent
+            }];
+            try {
+                const response = await fetch('/api/ai/stock-analysis', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ stocks: stockPayload, portfolio })
+                });
+                if (!response.ok) throw new Error(`HTTP ${response.status}`);
+                const analysis = await response.json();
+                if (analysis.error) throw new Error(analysis.error);
+                if (analysis[symbol]) {
+                    this.setCachedStockAnalysis(symbol, analysis[symbol]);
+                    this.updateCardWithAI(symbol, analysis[symbol]);
+                }
+                completed++;
+            } catch (err) {
+                console.error(`AI analysis failed for ${symbol}:`, err);
                 const card = document.getElementById(`watchlist-${symbol}`);
-                if (!card) return;
-                const aiSection = card.querySelector('.ai-section');
-                if (aiSection) aiSection.innerHTML = '<div class="ai-error">Analysis unavailable</div>';
-            });
-            this.setAIBarStatus('AI · unavailable');
-        } finally {
-            if (btn) btn.disabled = false;
-        }
+                if (card) {
+                    const aiSection = card.querySelector('.ai-section');
+                    if (aiSection) aiSection.innerHTML = '<div class="ai-error">Analysis unavailable</div>';
+                }
+                failed++;
+            }
+            const remaining = uncached.length - completed - failed;
+            if (remaining > 0) {
+                this.setAIBarStatus(`AI · analyzing ${remaining}...`);
+            } else {
+                this.setAIBarStatus(failed ? 'AI · partial' : 'AI · updated this week');
+            }
+        };
+
+        await Promise.all(uncached.map(s => analyzeOne(s)));
     }
 
     updateCardWithAI(symbol, analysis) {
@@ -4364,29 +4478,19 @@ class StockDashboard {
             </div>
         `;
 
-        // ai-section (right of graph): verdict + full content on desktop, verdict only on mobile (CSS hides the rest)
+        // ai-section (right of graph, desktop only): verdict badge + rating pills + per-card refresh
         aiSection.classList.remove('hidden');
         aiSection.innerHTML = `
             <div class="ai-verdict-row">
                 <div class="ai-verdict ${verdict}">${label}</div>
-                <button class="ai-collapse-btn" title="Collapse AI output">▴</button>
-                ${analysis.rationale ? `<div class="ai-rationale">${analysis.rationale}</div>` : ''}
+                <button class="ai-card-refresh-btn" title="Refresh analysis">↻</button>
             </div>
-            <div class="ai-body">
-                <div class="ai-summary">${analysis.summary}</div>
-                ${fullDetailsHTML}
-            </div>
+            ${ratingsHTML}
         `;
-
-        // Wire collapse button
-        const collapseBtn = aiSection.querySelector('.ai-collapse-btn');
-        if (collapseBtn) {
-            collapseBtn.addEventListener('click', (e) => {
-                e.stopPropagation();
-                const collapsed = card.classList.toggle('ai-collapsed');
-                collapseBtn.textContent = collapsed ? '▾' : '▴';
-            });
-        }
+        aiSection.querySelector('.ai-card-refresh-btn').addEventListener('click', (e) => {
+            e.stopPropagation();
+            this.refreshCardAnalysis(symbol);
+        });
 
         // Mobile verdict badge (shown in left column on mobile)
         const mobileVerdict = card.querySelector('.watchlist-verdict-mobile');
@@ -4395,18 +4499,28 @@ class StockDashboard {
             mobileVerdict.innerHTML = `<div class="ai-verdict ${verdict}">${label}</div>`;
         }
 
-        // ai-description (below card body): shown on mobile only, hidden on desktop via CSS
-        // Collapsed by default — ratings preview visible, full content revealed on toggle
+        // Collapsed summary ratings
+        const csRatings = card.querySelector('.cs-ratings');
+        if (csRatings) {
+            csRatings.innerHTML = ratingsHTML;
+        }
+
+        // ai-description (below card body): shown on both desktop and mobile
+        // Ratings visible on mobile (hidden on desktop via CSS — they're in ai-section there)
+        // Collapsed by default; toggle at bottom; refresh button in header
         const aiDesc = card.querySelector('.ai-description');
         if (aiDesc) {
             aiDesc.classList.remove('hidden');
             aiDesc.innerHTML = `
                 ${ratingsHTML}
-                <button class="ai-desc-toggle">AI Analysis ▾</button>
                 <div class="ai-desc-content ai-desc-collapsed">
                     ${analysis.rationale ? `<div class="ai-rationale">${analysis.rationale}</div>` : ''}
                     <div class="ai-summary">${analysis.summary}</div>
                     ${fullDetailsHTML}
+                </div>
+                <div class="ai-desc-footer">
+                    <button class="ai-desc-toggle">AI Analysis ▾</button>
+                    <button class="ai-card-refresh-btn ai-desc-refresh" title="Refresh analysis">↻</button>
                 </div>
             `;
             const toggle = aiDesc.querySelector('.ai-desc-toggle');
@@ -4414,6 +4528,10 @@ class StockDashboard {
             toggle.addEventListener('click', () => {
                 content.classList.toggle('ai-desc-collapsed');
                 toggle.textContent = content.classList.contains('ai-desc-collapsed') ? 'AI Analysis ▾' : 'AI Analysis ▴';
+            });
+            aiDesc.querySelector('.ai-desc-refresh').addEventListener('click', (e) => {
+                e.stopPropagation();
+                this.refreshCardAnalysis(symbol);
             });
         }
     }

@@ -238,9 +238,13 @@ def buy_recommendations():
         prompt = load_prompt('buy_recommendations', symbols=', '.join(symbols))
 
     try:
+        from google.genai import types
         response = _gemini_client.models.generate_content(
             model='gemini-2.5-flash',
-            contents=prompt
+            contents=prompt,
+            config=types.GenerateContentConfig(
+                tools=[types.Tool(google_search=types.GoogleSearch())]
+            )
         )
         text = response.text.strip()
         if text.startswith('```'):
@@ -276,9 +280,13 @@ def analyze_stocks():
     )
 
     try:
+        from google.genai import types
         response = _gemini_client.models.generate_content(
             model='gemini-2.5-flash',
-            contents=prompt
+            contents=prompt,
+            config=types.GenerateContentConfig(
+                tools=[types.Tool(google_search=types.GoogleSearch())]
+            )
         )
         text = response.text.strip()
         # Strip markdown code fences if present

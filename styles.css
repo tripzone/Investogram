@@ -1136,6 +1136,50 @@ button:active {
     cursor: pointer;
 }
 
+/* Collapsed summary: shown only when card is collapsed */
+.collapsed-summary {
+    display: none;
+    padding: 4px 0 8px;
+    gap: 6px;
+    flex-direction: column;
+}
+
+.stock-card.collapsed .collapsed-summary {
+    display: flex;
+}
+
+.cs-metrics {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.cs-change {
+    font-size: 18px;
+    font-weight: 600;
+    line-height: 1;
+}
+
+.cs-secondary {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.cs-price {
+    font-size: 11px;
+    color: #ccc;
+    line-height: 1;
+}
+
+.cs-7d {
+    font-size: 11px;
+    line-height: 1;
+}
+
+.cs-change.positive, .cs-7d.positive { color: #48bb78; }
+.cs-change.negative, .cs-7d.negative { color: #f56565; }
+
 .stock-header {
     display: flex;
     justify-content: space-between;
@@ -1333,28 +1377,66 @@ button:active {
 }
 
 /* AI Analysis Section */
-/* ai-description: mobile-only zone below card body */
+/* ai-description: below card body on both desktop and mobile in watchlistGrid */
 .ai-description {
     display: none;
+}
+
+#watchlistGrid .ai-description {
+    display: block;
+    margin-top: 8px;
+}
+
+@media (min-width: 769px) {
+    #watchlistGrid .ai-description .ai-desc-footer {
+        border-bottom: 1px solid #333;
+        padding-bottom: 8px;
+        margin-bottom: 4px;
+    }
+}
+
+@media (max-width: 768px) {
+    #watchlistGrid .ai-description {
+        border-top: 1px solid #333;
+        padding-top: 10px;
+    }
+}
+
+#watchlistGrid .ai-description.hidden {
+    display: none;
+}
+
+/* On desktop: ratings are shown in ai-section, hide duplicate in ai-description */
+@media (min-width: 769px) {
+    #watchlistGrid .ai-description .ai-ratings {
+        display: none;
+    }
 }
 
 .ai-desc-collapsed {
     display: none;
 }
 
+.ai-desc-footer {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding-top: 4px;
+}
+
 .ai-desc-toggle {
     background: none;
     border: none;
-    color: #888;
+    color: #555;
     font-size: 0.72rem;
     cursor: pointer;
     padding: 0;
     text-align: left;
-    width: 100%;
+    flex: 1;
 }
 
 .ai-desc-toggle:hover {
-    color: #aaa;
+    color: #888;
 }
 
 /* Mobile verdict badge slot — hidden on desktop */
@@ -1390,6 +1472,34 @@ button:active {
     padding-left: 16px;
     margin-top: 0;
     min-width: 0;
+}
+
+/* Stack rating bullets vertically in the desktop ai-section */
+.watchlist-card-body .ai-section .ai-ratings {
+    flex-direction: column;
+    flex-wrap: nowrap;
+}
+
+.watchlist-card-body .ai-section .ai-rating-item {
+    flex: none;
+    justify-content: flex-start;
+}
+
+.ai-card-refresh-btn {
+    background: none;
+    border: none;
+    cursor: pointer;
+    color: #444;
+    font-size: 13px;
+    padding: 0 2px;
+    line-height: 1;
+    margin-left: auto;
+    flex-shrink: 0;
+    transition: color 0.15s;
+}
+
+.ai-card-refresh-btn:hover {
+    color: #888;
 }
 
 .ai-section {
@@ -1524,10 +1634,9 @@ button:active {
 /* Rating bullet pills shown before expanding */
 .ai-ratings {
     display: flex;
-    flex-wrap: nowrap;
+    flex-wrap: wrap;
     gap: 4px;
     margin-bottom: 6px;
-    overflow: hidden;
 }
 
 .ai-rating-item {
@@ -2096,6 +2205,7 @@ button:active {
     .watchlist-card-left .chart-container {
         flex: 0 0 33.33%;
         height: 80px;
+        padding-right: 8px;
     }
 
     /* Hide full ai-section on mobile — verdict shown via watchlist-verdict-mobile */
@@ -2106,18 +2216,6 @@ button:active {
     .watchlist-verdict-mobile {
         display: block;
         margin-top: 6px;
-    }
-
-    /* ai-description appears below the card body, full width */
-    #watchlistGrid .ai-description {
-        display: block;
-        border-top: 1px solid #333;
-        padding-top: 10px;
-        margin-top: 8px;
-    }
-
-    #watchlistGrid .ai-description.hidden {
-        display: none;
     }
 }
 

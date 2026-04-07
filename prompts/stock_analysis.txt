@@ -6,7 +6,7 @@ Stocks to analyze:
 User's current portfolio positions:
 {portfolio}
 
-The market data provided (price, moving average position) is for context only. Use your own knowledge for all fundamental analysis.
+The market data provided (price, moving average position) is for context only. Use current, up-to-date information for all fundamental analysis — search for the latest P/E ratios, earnings reports, and analyst data.
 
 For each stock assess:
 1. Valuation — use fundamental metrics from your knowledge: P/E ratio (trailing and forward), P/B, EV/EBITDA, PEG, or revenue multiples as appropriate. State whether the stock is overvalued, fairly valued, or undervalued based on these fundamentals relative to its sector and historical norms. Do not reference moving averages here.
