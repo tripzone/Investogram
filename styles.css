@@ -1338,6 +1338,30 @@ button:active {
     display: none;
 }
 
+.ai-desc-collapsed {
+    display: none;
+}
+
+.ai-desc-toggle {
+    background: none;
+    border: none;
+    color: #888;
+    font-size: 0.72rem;
+    cursor: pointer;
+    padding: 0;
+    text-align: left;
+    width: 100%;
+}
+
+.ai-desc-toggle:hover {
+    color: #aaa;
+}
+
+/* Mobile verdict badge slot — hidden on desktop */
+.watchlist-verdict-mobile {
+    display: none;
+}
+
 /* Watchlist card layout */
 #watchlistGrid .stock-card {
     width: 560px;
@@ -1485,34 +1509,64 @@ button:active {
     margin-bottom: 8px;
 }
 
-.ai-detail-toggle {
-    background: none;
-    border: none;
-    color: #555;
-    font-size: 11px;
-    cursor: pointer;
-    padding: 0;
-    margin-bottom: 6px;
-    display: block;
-}
-
-.ai-detail-toggle:hover {
-    color: #aaa;
-}
 
 .ai-detail {
     font-size: 11px;
     color: #666;
     line-height: 1.7;
-}
-
-.ai-detail.hidden {
-    display: none;
+    margin-top: 6px;
 }
 
 .ai-detail p {
     margin: 3px 0;
 }
+
+/* Rating bullet pills shown before expanding */
+.ai-ratings {
+    display: flex;
+    flex-wrap: nowrap;
+    gap: 4px;
+    margin-bottom: 6px;
+    overflow: hidden;
+}
+
+.ai-rating-item {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    font-size: 9px;
+    padding: 2px 5px;
+    border-radius: 10px;
+    background: rgba(255,255,255,0.05);
+    color: #999;
+    text-transform: capitalize;
+    white-space: nowrap;
+    flex: 1;
+    justify-content: center;
+}
+
+.ai-rating-label {
+    color: #555;
+    font-size: 8px;
+    text-transform: uppercase;
+    letter-spacing: 0.02em;
+}
+
+/* Valuation: cheap=green, expensive=red, mid=neutral */
+.ai-rating-item.valuation-cheap { color: #48bb78; background: rgba(72,187,120,0.1); }
+.ai-rating-item.valuation-expensive { color: #f56565; background: rgba(245,101,101,0.1); }
+
+/* Fundamentals: strong=green, weak=red */
+.ai-rating-item.fundamentals-strong { color: #48bb78; background: rgba(72,187,120,0.1); }
+.ai-rating-item.fundamentals-weak { color: #f56565; background: rgba(245,101,101,0.1); }
+
+/* Portfolio fit: high=green, low=red */
+.ai-rating-item.fit-high { color: #48bb78; background: rgba(72,187,120,0.1); }
+.ai-rating-item.fit-low { color: #f56565; background: rgba(245,101,101,0.1); }
+
+/* Long term: bullish=green, bearish=red */
+.ai-rating-item.longterm-bullish { color: #48bb78; background: rgba(72,187,120,0.1); }
+.ai-rating-item.longterm-bearish { color: #f56565; background: rgba(245,101,101,0.1); }
 
 .ai-label {
     color: #888;
@@ -2025,28 +2079,40 @@ button:active {
         flex-direction: row;
     }
 
+    /* On mobile: card-left becomes flex-row — info on left, chart on right */
     .watchlist-card-left {
-        flex: 0 0 140px;
+        flex: 1;
+        display: flex;
+        flex-direction: row;
+        align-items: flex-start;
+        gap: 8px;
+    }
+
+    .watchlist-card-info {
+        flex: 1;
+        min-width: 0;
     }
 
     .watchlist-card-left .chart-container {
-        height: 65px;
+        flex: 0 0 33.33%;
+        height: 80px;
     }
 
-    /* On mobile: verdict only in right column, body content and rationale hidden */
-    #watchlistGrid .ai-section .ai-body {
+    /* Hide full ai-section on mobile — verdict shown via watchlist-verdict-mobile */
+    #watchlistGrid .ai-section {
         display: none;
     }
 
-    #watchlistGrid .ai-section .ai-rationale {
-        display: none;
+    .watchlist-verdict-mobile {
+        display: block;
+        margin-top: 6px;
     }
 
     /* ai-description appears below the card body, full width */
     #watchlistGrid .ai-description {
         display: block;
         border-top: 1px solid #333;
-        padding-top: 12px;
+        padding-top: 10px;
         margin-top: 8px;
     }
 

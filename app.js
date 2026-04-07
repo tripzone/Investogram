@@ -3473,15 +3473,18 @@ class StockDashboard {
             </div>
             <div class="watchlist-card-body">
                 <div class="watchlist-card-left">
-                    <div class="stock-metrics" data-symbol="${symbol}" data-context="watchlist">
-                        <div class="primary-metric">Loading...</div>
-                        <div class="secondary-metrics"></div>
+                    <div class="watchlist-card-info">
+                        <div class="stock-metrics" data-symbol="${symbol}" data-context="watchlist">
+                            <div class="primary-metric">Loading...</div>
+                            <div class="secondary-metrics"></div>
+                        </div>
+                        <div class="ma-info">
+                            <span class="ma-comparison">Loading...</span>
+                        </div>
+                        <div class="watchlist-verdict-mobile hidden"></div>
                     </div>
                     <div class="chart-container">
                         <canvas id="chart-watchlist-${symbol}"></canvas>
-                    </div>
-                    <div class="ma-info">
-                        <span class="ma-comparison">Loading...</span>
                     </div>
                 </div>
                 <div class="ai-section hidden"></div>
@@ -4335,9 +4338,25 @@ class StockDashboard {
         const verdict = analysis.verdict || 'hold';
         const label = verdict.charAt(0).toUpperCase() + verdict.slice(1);
 
-        const detailsHTML = `
-            <button class="ai-detail-toggle" onclick="this.nextElementSibling.classList.toggle('hidden'); this.textContent = this.nextElementSibling.classList.contains('hidden') ? 'Details ▾' : 'Details ▴'">Details ▾</button>
-            <div class="ai-detail hidden">
+        const ratingsHTML = `
+            <div class="ai-ratings">
+                <span class="ai-rating-item valuation-${analysis.valuation_rating || 'mid'}">
+                    <span class="ai-rating-label">Valuation</span> ${analysis.valuation_rating || '–'}
+                </span>
+                <span class="ai-rating-item fundamentals-${analysis.fundamentals_rating || 'mid'}">
+                    <span class="ai-rating-label">Fundamentals</span> ${analysis.fundamentals_rating || '–'}
+                </span>
+                <span class="ai-rating-item fit-${analysis.portfolio_fit_rating || 'mid'}">
+                    <span class="ai-rating-label">Portfolio fit</span> ${analysis.portfolio_fit_rating || '–'}
+                </span>
+                <span class="ai-rating-item longterm-${analysis.long_term_rating || 'mid'}">
+                    <span class="ai-rating-label">Long term</span> ${analysis.long_term_rating || '–'}
+                </span>
+            </div>
+        `;
+
+        const fullDetailsHTML = `
+            <div class="ai-detail">
                 <p><span class="ai-label">Valuation:</span> ${analysis.valuation}</p>
                 <p><span class="ai-label">Fundamentals:</span> ${analysis.fundamentals}</p>
                 <p><span class="ai-label">Portfolio fit:</span> ${analysis.portfolio_fit}</p>
@@ -4355,7 +4374,7 @@ class StockDashboard {
             </div>
             <div class="ai-body">
                 <div class="ai-summary">${analysis.summary}</div>
-                ${detailsHTML}
+                ${fullDetailsHTML}
             </div>
         `;
 
@@ -4369,15 +4388,33 @@ class StockDashboard {
             });
         }
 
+        // Mobile verdict badge (shown in left column on mobile)
+        const mobileVerdict = card.querySelector('.watchlist-verdict-mobile');
+        if (mobileVerdict) {
+            mobileVerdict.classList.remove('hidden');
+            mobileVerdict.innerHTML = `<div class="ai-verdict ${verdict}">${label}</div>`;
+        }
+
         // ai-description (below card body): shown on mobile only, hidden on desktop via CSS
+        // Collapsed by default — ratings preview visible, full content revealed on toggle
         const aiDesc = card.querySelector('.ai-description');
         if (aiDesc) {
             aiDesc.classList.remove('hidden');
             aiDesc.innerHTML = `
-                ${analysis.rationale ? `<div class="ai-rationale">${analysis.rationale}</div>` : ''}
-                <div class="ai-summary">${analysis.summary}</div>
-                ${detailsHTML}
+                ${ratingsHTML}
+                <button class="ai-desc-toggle">AI Analysis ▾</button>
+                <div class="ai-desc-content ai-desc-collapsed">
+                    ${analysis.rationale ? `<div class="ai-rationale">${analysis.rationale}</div>` : ''}
+                    <div class="ai-summary">${analysis.summary}</div>
+                    ${fullDetailsHTML}
+                </div>
             `;
+            const toggle = aiDesc.querySelector('.ai-desc-toggle');
+            const content = aiDesc.querySelector('.ai-desc-content');
+            toggle.addEventListener('click', () => {
+                content.classList.toggle('ai-desc-collapsed');
+                toggle.textContent = content.classList.contains('ai-desc-collapsed') ? 'AI Analysis ▾' : 'AI Analysis ▴';
+            });
         }
     }
 
@@ -4443,7 +4480,7 @@ class StockDashboard {
                     legend: {
                         display: false
                     },
-                    tooltip: {
+                    tooltip: window.innerWidth <= 768 ? { enabled: false } : {
                         mode: 'index',
                         intersect: false,
                         backgroundColor: '#1a1a1a',
