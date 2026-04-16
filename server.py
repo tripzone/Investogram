@@ -137,6 +137,167 @@ def stocks_batch():
     return jsonify(results)
 
 
+# ── Fundamentals cache ────────────────────────────────────────────────────────
+# TTL is 1 hour — fundamentals are quarterly data, no need to refresh more often.
+_fundamentals_cache = {}  # key: symbol, value: (fetched_at, data)
+_FUNDAMENTALS_TTL = 60 * 60  # 1 hour
+
+# Semaphore: limit concurrent yfinance calls to avoid Yahoo rate limiting.
+# yfinance handles the crumb but Yahoo blocks rapid parallel requests.
+import threading
+_yf_semaphore = threading.Semaphore(1)
+
+
+def _fundamentals_cache_get(symbol):
+    entry = _fundamentals_cache.get(symbol)
+    if entry and time.time() - entry[0] < _FUNDAMENTALS_TTL:
+        return entry[1]
+    return None
+
+
+def _fundamentals_cache_set(symbol, data):
+    _fundamentals_cache[symbol] = (time.time(), data)
+
+
+def _fetch_fundamentals_yf(symbol):
+    """Fetch fundamentals for one symbol via yfinance (handles Yahoo crumb automatically)."""
+    import yfinance as yf
+    with _yf_semaphore:
+        time.sleep(0.3)  # brief pause to avoid hitting Yahoo rate limits
+        info = yf.Ticker(symbol).info
+    return {
+        'trailingPE': info.get('trailingPE'),
+        'forwardPE': info.get('forwardPE'),
+        'dividendYield': info.get('dividendYield'),
+        'profitMargin': info.get('profitMargins'),
+    }
+
+
+@app.route('/api/stocks/fundamentals')
+def stocks_fundamentals():
+    symbols_param = request.args.get('symbols', '')
+    symbols = [s.strip().upper() for s in symbols_param.split(',') if s.strip()]
+    if not symbols:
+        return jsonify({'error': 'No symbols provided'}), 400
+
+    results = {}
+    to_fetch = []
+
+    for symbol in symbols:
+        cached = _fundamentals_cache_get(symbol)
+        if cached is not None:
+            results[symbol] = cached
+        else:
+            to_fetch.append(symbol)
+
+    if to_fetch:
+        def fetch_one(symbol):
+            try:
+                return symbol, _fetch_fundamentals_yf(symbol)
+            except Exception as e:
+                print(f'Fundamentals fetch failed for {symbol}: {e}')
+                return symbol, {'trailingPE': None, 'forwardPE': None, 'dividendYield': None, 'profitMargin': None}
+
+        with ThreadPoolExecutor(max_workers=min(len(to_fetch), 5)) as executor:
+            futures = {executor.submit(fetch_one, sym): sym for sym in to_fetch}
+            for future in as_completed(futures):
+                sym, fund = future.result()
+                # Only cache if we got real data — don't persist rate-limit failures
+                if any(v is not None for v in fund.values()):
+                    _fundamentals_cache_set(sym, fund)
+                results[sym] = fund
+
+    return jsonify(results)
+
+
+# ── Stock details (comprehensive fundamentals for modal) ──────────────────────
+_details_cache = {}  # key: symbol, value: (fetched_at, data)
+_DETAILS_TTL = 60 * 60  # 1 hour
+
+
+@app.route('/api/stock/<symbol>/details')
+def stock_details(symbol):
+    symbol = symbol.upper()
+    entry = _details_cache.get(symbol)
+    if entry and time.time() - entry[0] < _DETAILS_TTL:
+        return jsonify(entry[1])
+
+    try:
+        import yfinance as yf
+        info = yf.Ticker(symbol).info
+
+        def g(key): return info.get(key)
+
+        data = {
+            'symbol': symbol,
+            'longName': g('longName'),
+            'sector': g('sector'),
+            'industry': g('industry'),
+            # Valuation
+            'trailingPE': g('trailingPE'),
+            'forwardPE': g('forwardPE'),
+            'priceToBook': g('priceToBook'),
+            'priceToSalesTrailing12Months': g('priceToSalesTrailing12Months'),
+            'enterpriseToEbitda': g('enterpriseToEbitda'),
+            'enterpriseToRevenue': g('enterpriseToRevenue'),
+            'trailingPegRatio': g('trailingPegRatio'),
+            # Profitability
+            'profitMargins': g('profitMargins'),
+            'grossMargins': g('grossMargins'),
+            'operatingMargins': g('operatingMargins'),
+            'ebitdaMargins': g('ebitdaMargins'),
+            'returnOnEquity': g('returnOnEquity'),
+            'returnOnAssets': g('returnOnAssets'),
+            # Growth
+            'revenueGrowth': g('revenueGrowth'),
+            'earningsGrowth': g('earningsGrowth'),
+            'earningsQuarterlyGrowth': g('earningsQuarterlyGrowth'),
+            # Financial health
+            'debtToEquity': g('debtToEquity'),
+            'currentRatio': g('currentRatio'),
+            'quickRatio': g('quickRatio'),
+            'totalCash': g('totalCash'),
+            'totalDebt': g('totalDebt'),
+            'freeCashflow': g('freeCashflow'),
+            'operatingCashflow': g('operatingCashflow'),
+            # Dividends
+            'dividendYield': g('dividendYield'),
+            'dividendRate': g('dividendRate'),
+            'payoutRatio': g('payoutRatio'),
+            'fiveYearAvgDividendYield': g('fiveYearAvgDividendYield'),
+            # Market & share data
+            'marketCap': g('marketCap'),
+            'enterpriseValue': g('enterpriseValue'),
+            'beta': g('beta'),
+            'sharesOutstanding': g('sharesOutstanding'),
+            'floatShares': g('floatShares'),
+            'shortRatio': g('shortRatio'),
+            'shortPercentOfFloat': g('shortPercentOfFloat'),
+            'fiftyTwoWeekHigh': g('fiftyTwoWeekHigh'),
+            'fiftyTwoWeekLow': g('fiftyTwoWeekLow'),
+            'fiftyDayAverage': g('fiftyDayAverage'),
+            'twoHundredDayAverage': g('twoHundredDayAverage'),
+            'averageVolume': g('averageVolume'),
+            # Analyst
+            'recommendationKey': g('recommendationKey'),
+            'numberOfAnalystOpinions': g('numberOfAnalystOpinions'),
+            'targetMeanPrice': g('targetMeanPrice'),
+            'targetHighPrice': g('targetHighPrice'),
+            'targetLowPrice': g('targetLowPrice'),
+            # Per share
+            'trailingEps': g('trailingEps'),
+            'forwardEps': g('forwardEps'),
+            'bookValue': g('bookValue'),
+            'revenuePerShare': g('revenuePerShare'),
+            'totalCashPerShare': g('totalCashPerShare'),
+        }
+
+        _details_cache[symbol] = (time.time(), data)
+        return jsonify(data)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
 # ── User data API (requires Firebase auth) ─────────────────────────────────────
 
 @app.route('/api/user/data', methods=['GET'])
@@ -213,49 +374,6 @@ def analyze_portfolio():
 
 
 # ── Stock AI analysis ─────────────────────────────────────────────────────────
-
-@app.route('/api/ai/buy-recommendations', methods=['POST'])
-def buy_recommendations():
-    if _gemini_client is None:
-        return jsonify({'error': 'AI analysis not available'}), 503
-
-    body = request.get_json()
-    if not body:
-        return jsonify({'error': 'No data provided'}), 400
-
-    symbols = body.get('symbols', [])
-    if not symbols:
-        return jsonify({'error': 'No symbols provided'}), 400
-
-    portfolio = body.get('portfolio', None)
-    if portfolio:
-        prompt = load_prompt(
-            'buy_recommendations_portfolio',
-            symbols=', '.join(symbols),
-            portfolio=json.dumps(portfolio, indent=2)
-        )
-    else:
-        prompt = load_prompt('buy_recommendations', symbols=', '.join(symbols))
-
-    try:
-        from google.genai import types
-        response = _gemini_client.models.generate_content(
-            model='gemini-2.5-flash',
-            contents=prompt,
-            config=types.GenerateContentConfig(
-                tools=[types.Tool(google_search=types.GoogleSearch())]
-            )
-        )
-        text = response.text.strip()
-        if text.startswith('```'):
-            text = text.split('\n', 1)[1]
-            text = text.rsplit('```', 1)[0].strip()
-        result = json.loads(text)
-        return jsonify(result)
-    except json.JSONDecodeError as e:
-        return jsonify({'error': f'Failed to parse AI response: {e}'}), 500
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
 
 
 @app.route('/api/ai/stock-analysis', methods=['POST'])

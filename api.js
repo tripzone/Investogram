@@ -7,6 +7,8 @@ class StockAPI {
         this.requestDelay = 0; // No delay needed — rate limiting handled server-side
         this.cache = new Map(); // Cache for 5 minutes
         this.cacheTimeout = 5 * 60 * 1000; // 5 minutes
+        this.fundamentalsCache = new Map(); // Cache for 1 hour
+        this.fundamentalsCacheTTL = 60 * 60 * 1000; // 1 hour
     }
 
     getAPIKey() {
@@ -26,19 +28,45 @@ class StockAPI {
     }
 
     getFromCache(cacheKey) {
+        // In-memory check first (fastest path)
         const cached = this.cache.get(cacheKey);
         if (cached && Date.now() - cached.timestamp < this.cacheTimeout) {
             console.log('Using cached data for', cacheKey);
             return cached.data;
         }
+
+        // Weekly data: also check localStorage (end-of-day TTL)
+        // Weekly closes only change once a week so persisting across refreshes is safe
+        if (cacheKey.includes('interval=1wk')) {
+            try {
+                const stored = localStorage.getItem('wk_' + cacheKey);
+                if (stored) {
+                    const { date, data } = JSON.parse(stored);
+                    if (date === new Date().toISOString().slice(0, 10)) {
+                        // Warm in-memory cache so subsequent calls skip localStorage parsing
+                        this.cache.set(cacheKey, { data, timestamp: Date.now() });
+                        console.log('Using localStorage weekly cache for', cacheKey);
+                        return data;
+                    }
+                }
+            } catch (_) { /* ignore parse/quota errors */ }
+        }
+
         return null;
     }
 
     setCache(cacheKey, data) {
-        this.cache.set(cacheKey, {
-            data,
-            timestamp: Date.now()
-        });
+        this.cache.set(cacheKey, { data, timestamp: Date.now() });
+
+        // Weekly data: also persist to localStorage so it survives page refreshes
+        if (cacheKey.includes('interval=1wk')) {
+            try {
+                localStorage.setItem('wk_' + cacheKey, JSON.stringify({
+                    date: new Date().toISOString().slice(0, 10),
+                    data
+                }));
+            } catch (_) { /* ignore quota errors — cache is best-effort */ }
+        }
     }
 
     async queueRequest(requestFn) {
@@ -218,6 +246,12 @@ class StockAPI {
             const weeklyChange = currentPrice - weekAgoPrice;
             const weeklyChangePercent = ((weeklyChange / weekAgoPrice) * 100).toFixed(2);
 
+            // Calculate 28-day change (from daily data)
+            const monthlyDailyPrices = dailyCloses.slice(-28);
+            const monthAgoPrice = monthlyDailyPrices[0];
+            const monthlyChange = currentPrice - monthAgoPrice;
+            const monthlyChangePercent = ((monthlyChange / monthAgoPrice) * 100).toFixed(2);
+
             // Parse weekly data for chart
             const weeklyResult = weekly.chart.result[0];
             const weeklyQuote = weeklyResult.indicators.quote[0];
@@ -241,12 +275,15 @@ class StockAPI {
                 dayChangePercent: dayChangePercent,
                 weeklyChange: weeklyChange.toFixed(2),
                 weeklyChangePercent: weeklyChangePercent,
+                monthlyChange: monthlyChange.toFixed(2),
+                monthlyChangePercent: monthlyChangePercent,
                 chartPrices: weeklyCloses, // Weekly data for chart
                 chartMA50: ma50Week, // 50-week moving average for chart
                 vsMA50: vsMA50, // % difference from 50-week MA
                 vsMA200: vsMA200, // % difference from 200-week MA
                 isPositive: dayChange >= 0,
-                isWeeklyPositive: weeklyChange >= 0
+                isWeeklyPositive: weeklyChange >= 0,
+                isMonthlyPositive: monthlyChange >= 0
             };
         } catch (error) {
             console.error(`Error fetching data for ${symbol}:`, error);
@@ -520,6 +557,43 @@ class StockAPI {
         }
 
         return { upper: upperBand, lower: lowerBand, middle: middleBand };
+    }
+
+    // ── Fundamentals ───────────────────────────────────────────────────────────
+
+    getFundamentalsFromCache(symbol) {
+        const entry = this.fundamentalsCache.get(symbol.toUpperCase());
+        if (entry && Date.now() - entry.timestamp < this.fundamentalsCacheTTL) {
+            return entry.data;
+        }
+        return null;
+    }
+
+    async fetchFundamentals(symbols) {
+        const toFetch = symbols
+            .map(s => s.toUpperCase())
+            .filter(s => !this.getFundamentalsFromCache(s));
+
+        if (toFetch.length) {
+            try {
+                const resp = await fetch(`/api/stocks/fundamentals?symbols=${toFetch.join(',')}`);
+                if (resp.ok) {
+                    const data = await resp.json();
+                    for (const [sym, fund] of Object.entries(data)) {
+                        this.fundamentalsCache.set(sym.toUpperCase(), { data: fund, timestamp: Date.now() });
+                    }
+                }
+            } catch (e) {
+                console.error('Fundamentals fetch failed:', e);
+            }
+        }
+
+        const result = {};
+        for (const sym of symbols) {
+            const cached = this.getFundamentalsFromCache(sym);
+            if (cached) result[sym.toUpperCase()] = cached;
+        }
+        return result;
     }
 }
 

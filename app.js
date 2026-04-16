@@ -106,6 +106,20 @@ class StockDashboard {
                 cardTitle: 'Stock Analysis: Buys/Sells by Date',
                 description: 'Transaction volumes over time',
                 heading: 'Stock Analysis'
+            },
+            {
+                id: 'portfolio-performance',
+                title: 'Portfolio vs S&P 500',
+                cardTitle: 'Performance: Portfolio vs S&P 500 (28 Days)',
+                description: 'Daily cumulative return vs the market',
+                heading: 'Performance'
+            },
+            {
+                id: 'portfolio-performance-weekly',
+                title: 'Portfolio vs S&P 500 (Long Term)',
+                cardTitle: 'Performance: Portfolio vs S&P 500 (Weekly)',
+                description: 'Weekly cumulative return vs the market — up to 3 years',
+                heading: 'Performance'
             }
         ];
 
@@ -140,15 +154,18 @@ class StockDashboard {
         const trackingActionBtns = document.querySelectorAll('.stock-action-btns');
         const trackingDesktop = document.getElementById('trackingActionBtns');
         const watchlistDesktop = document.getElementById('watchlistActionBtns');
+        const watchlistMobile = document.querySelector('.watchlist-action-mobile');
 
         const showStockActions = () => {
             trackingActionBtns.forEach(el => el.classList.remove('hidden'));
             if (watchlistDesktop) watchlistDesktop.classList.add('hidden');
+            if (watchlistMobile) watchlistMobile.classList.add('hidden');
         };
         const hideStockActions = () => trackingActionBtns.forEach(el => el.classList.add('hidden'));
         const showWatchlistActions = () => {
             if (trackingDesktop) trackingDesktop.classList.add('hidden');
             if (watchlistDesktop) watchlistDesktop.classList.remove('hidden');
+            if (watchlistMobile) watchlistMobile.classList.remove('hidden');
         };
 
         stocksTab.addEventListener('click', () => {
@@ -181,14 +198,6 @@ class StockDashboard {
             hideStockActions();
             showWatchlistActions();
 
-            if (this._pendingBuyRecoMeasure) {
-                this._pendingBuyRecoMeasure = false;
-                requestAnimationFrame(() => this._measureBuyRecoToggle());
-            }
-            if (this._pendingBuyRecoPortfolioMeasure) {
-                this._pendingBuyRecoPortfolioMeasure = false;
-                requestAnimationFrame(() => this._measureBuyRecoPortfolioToggle());
-            }
         });
 
         portfolioTab.addEventListener('click', () => {
@@ -205,6 +214,7 @@ class StockDashboard {
             uploadControls.classList.add('visible');
             hideStockActions();
             if (watchlistDesktop) watchlistDesktop.classList.add('hidden');
+            if (watchlistMobile) watchlistMobile.classList.add('hidden');
 
             if (this._pendingAnalysisMeasure) {
                 this._pendingAnalysisMeasure = false;
@@ -1126,11 +1136,28 @@ class StockDashboard {
 
             // Add timeframe buttons for market activity graphs
             const isMarketActivityGraph = graphId === 'market-activity' || graphId === 'market-activity-by-ticker';
+            const isPerformanceGraph = graphId === 'portfolio-performance';
+            const isWeeklyPerformanceGraph = graphId === 'portfolio-performance-weekly';
             const timeframeButtons = isMarketActivityGraph ? `
                 <div class="timeframe-selector">
                     <button class="timeframe-btn active" data-timeframe="1y">1Y</button>
                     <button class="timeframe-btn" data-timeframe="5y">5Y</button>
                     <button class="timeframe-btn" data-timeframe="all">ALL</button>
+                </div>
+            ` : isPerformanceGraph ? `
+                <div class="timeframe-selector">
+                    <button class="timeframe-btn" data-timeframe="7d">7D</button>
+                    <button class="timeframe-btn active" data-timeframe="28d">28D</button>
+                    <button class="timeframe-btn" data-timeframe="3m">3M</button>
+                    <button class="timeframe-btn" data-timeframe="6m">6M</button>
+                </div>
+            ` : isWeeklyPerformanceGraph ? `
+                <div class="timeframe-selector">
+                    <button class="timeframe-btn" data-timeframe="6m">6M</button>
+                    <button class="timeframe-btn active" data-timeframe="1y">1Y</button>
+                    <button class="timeframe-btn" data-timeframe="2y">2Y</button>
+                    <button class="timeframe-btn" data-timeframe="3y">3Y</button>
+                    <button class="timeframe-btn" data-timeframe="5y">5Y</button>
                 </div>
             ` : '';
 
@@ -1196,6 +1223,32 @@ class StockDashboard {
                         } else if (graphId === 'market-activity-by-ticker') {
                             this.renderMarketActivityByTicker(canvasId, timeframe);
                         }
+                    });
+                });
+            }
+
+            // Add timeframe button listeners for performance graph
+            if (isPerformanceGraph) {
+                const timeframeBtns = graphCard.querySelectorAll('.timeframe-btn');
+                timeframeBtns.forEach(btn => {
+                    btn.addEventListener('click', (e) => {
+                        e.stopPropagation();
+                        timeframeBtns.forEach(b => b.classList.remove('active'));
+                        btn.classList.add('active');
+                        this.renderPortfolioPerformance(canvasId, btn.dataset.timeframe);
+                    });
+                });
+            }
+
+            // Add timeframe button listeners for weekly performance graph
+            if (isWeeklyPerformanceGraph) {
+                const timeframeBtns = graphCard.querySelectorAll('.timeframe-btn');
+                timeframeBtns.forEach(btn => {
+                    btn.addEventListener('click', (e) => {
+                        e.stopPropagation();
+                        timeframeBtns.forEach(b => b.classList.remove('active'));
+                        btn.classList.add('active');
+                        this.renderPortfolioPerformanceWeekly(canvasId, btn.dataset.timeframe);
                     });
                 });
             }
@@ -1289,6 +1342,12 @@ class StockDashboard {
             case 'buys-sells-by-date':
                 await this.renderBuySellsByDate(canvasId);
                 break;
+            case 'portfolio-performance':
+                await this.renderPortfolioPerformance(canvasId);
+                break;
+            case 'portfolio-performance-weekly':
+                await this.renderPortfolioPerformanceWeekly(canvasId);
+                break;
             default:
                 // Show placeholder for unimplemented graphs
                 const canvas = document.getElementById(canvasId);
@@ -1312,7 +1371,7 @@ class StockDashboard {
             const graphId = typeof graphEntry === 'string' ? graphEntry : graphEntry.id;
             const canvasId = `portfolio-chart-${index}`;
 
-            // Preserve active timeframe for market activity graphs
+            // Preserve active timeframe for graphs that have timeframe buttons
             const graphCard = document.getElementById(`portfolio-graph-${graphId}`);
             const activeTimeframeBtn = graphCard?.querySelector('.timeframe-btn.active');
             const timeframe = activeTimeframeBtn?.dataset.timeframe || '1y';
@@ -1322,6 +1381,10 @@ class StockDashboard {
                     this.renderMarketActivity(canvasId, timeframe);
                 } else if (graphId === 'market-activity-by-ticker') {
                     this.renderMarketActivityByTicker(canvasId, timeframe);
+                } else if (graphId === 'portfolio-performance') {
+                    this.renderPortfolioPerformance(canvasId, activeTimeframeBtn?.dataset.timeframe || '28d');
+                } else if (graphId === 'portfolio-performance-weekly') {
+                    this.renderPortfolioPerformanceWeekly(canvasId, activeTimeframeBtn?.dataset.timeframe || '1y');
                 } else {
                     this.renderGraph(graphId, canvasId);
                 }
@@ -3066,6 +3129,715 @@ class StockDashboard {
         this.portfolioCharts.set(canvasId, chart);
     }
 
+    async renderPortfolioPerformance(canvasId, period = '28d') {
+        const rawPositions = this.loadPortfolioData('positions');
+        const rawTrades = this.loadPortfolioData('trades');
+        const canvas = document.getElementById(canvasId);
+        if (!canvas) return;
+
+        const existingChart = this.portfolioCharts.get(canvasId);
+        if (existingChart) {
+            existingChart.destroy();
+            this.portfolioCharts.delete(canvasId);
+        }
+
+        const showError = (msg) => {
+            const c = canvas.getContext('2d');
+            c.clearRect(0, 0, canvas.width, canvas.height);
+            c.fillStyle = '#666';
+            c.font = '13px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto';
+            c.textAlign = 'center';
+            c.fillText(msg, canvas.width / 2, canvas.height / 2);
+        };
+
+        if ((!rawPositions || rawPositions.length === 0) && (!rawTrades || rawTrades.length === 0)) {
+            showError('No portfolio data available. Upload positions or trades to see this chart.');
+            return;
+        }
+
+        showError('Loading performance data...');
+
+        let usdToCad = await this.getExchangeRate('USD', 'CAD') || 1.0;
+
+        // Build symbol→currency map from positions (most reliable), supplemented by trades
+        const symbolCurrency = {};
+        if (rawPositions) {
+            rawPositions.forEach(p => {
+                if (p.symbol && p.currency) symbolCurrency[p.symbol.toUpperCase()] = p.currency;
+            });
+        }
+
+        // Calendar-day lookback per period (data fetch is always 1y/1d — see below)
+        const calendarDaysMap = { '7d': 7, '28d': 28, '3m': 90, '6m': 180 };
+        const calendarDays = calendarDaysMap[period] ?? 28;
+
+        // Determine symbols to fetch and how to compute holdings per day
+        const useTrades = rawTrades && rawTrades.length > 0;
+        let symbolsToFetch;
+        // holdingsPerDay: tradingDay[] -> {symbol: signedQty}[], built after we know tradingDays
+        let buildHoldingsPerDay;
+
+        if (useTrades) {
+            // Sort trades by date; exclude dividends
+            const trades = rawTrades
+                .filter(t => t.type?.toLowerCase() !== 'dividend' && parseFloat(t.quantity || 0) !== 0)
+                .sort((a, b) => (a.transaction_date || '').localeCompare(b.transaction_date || ''));
+
+            // Supplement currency map from trade records
+            trades.forEach(t => {
+                const sym = t.symbol?.toUpperCase();
+                if (sym && t.currency && !symbolCurrency[sym]) symbolCurrency[sym] = t.currency;
+            });
+
+            // All symbols ever traded (respecting exclude filter)
+            symbolsToFetch = [...new Set(
+                trades
+                    .map(t => t.symbol?.toUpperCase())
+                    .filter(s => s && !this.portfolioExcludedSymbols.has(s))
+            )];
+
+            // Signed quantity: buy = positive, sell = negative
+            const signedQty = (trade) => {
+                const qty = parseFloat(trade.quantity || 0);
+                const type = trade.type?.toLowerCase();
+                if (type === 'buy')  return  Math.abs(qty);
+                if (type === 'sell') return -Math.abs(qty);
+                return qty; // 'trade' type: quantity carries the sign
+            };
+
+            buildHoldingsPerDay = (tradingDays) => {
+                // Single O(trades + days) pass — walk trades in date order alongside days
+                const result = [];
+                const current = {}; // symbol -> running qty
+                let ti = 0;
+                for (const day of tradingDays) {
+                    while (ti < trades.length && (trades[ti].transaction_date || '') <= day) {
+                        const t = trades[ti++];
+                        const sym = t.symbol?.toUpperCase();
+                        if (!sym || this.portfolioExcludedSymbols.has(sym)) continue;
+                        current[sym] = (current[sym] || 0) + signedQty(t);
+                    }
+                    result.push({ ...current });
+                }
+                return result;
+            };
+        } else {
+            // Fall back to fixed positions snapshot
+            const positions = (rawPositions || []).filter(
+                p => !this.portfolioExcludedSymbols.has(p.symbol?.toUpperCase())
+            );
+            if (positions.length === 0) {
+                showError('All positions are excluded. Adjust the filter to see this chart.');
+                return;
+            }
+            symbolsToFetch = [...new Set(positions.map(p => p.symbol.toUpperCase()))];
+            const fixed = {};
+            positions.forEach(p => { fixed[p.symbol.toUpperCase()] = parseFloat(p.quantity || 0); });
+            buildHoldingsPerDay = (tradingDays) => tradingDays.map(() => ({ ...fixed }));
+        }
+
+        if (symbolsToFetch.length === 0) {
+            showError('No tradeable symbols found in portfolio data.');
+            return;
+        }
+
+        // Fetch 1y/1d once per day and persist in localStorage.
+        // All period views (7D→6M) slice this single dataset client-side — no extra Yahoo calls.
+        // Historical daily closes never change, so end-of-day expiry is the right TTL.
+        const allSymbols = [...symbolsToFetch, '^GSPC'];
+        const cacheKey = [...allSymbols].sort().join(',');
+        const today = new Date().toISOString().slice(0, 10); // YYYY-MM-DD
+        const LS_KEY = 'perf_price_cache';
+
+        let priceHistory; // symbol -> {dateStr: closePrice}
+
+        try {
+            const stored = localStorage.getItem(LS_KEY);
+            if (stored) {
+                const parsed = JSON.parse(stored);
+                if (parsed.key === cacheKey && parsed.date === today) {
+                    priceHistory = parsed.priceHistory;
+                }
+            }
+        } catch (_) { /* ignore parse errors */ }
+
+        if (!priceHistory) {
+            priceHistory = {};
+            try {
+                const batchUrl = `/api/stocks/batch?symbols=${allSymbols.map(encodeURIComponent).join(',')}&range=1y&interval=1d`;
+                const resp = await fetch(batchUrl);
+                if (!resp.ok) throw new Error('Batch fetch failed');
+                const batchData = await resp.json();
+
+                for (const sym of allSymbols) {
+                    const result = batchData[sym]?.chart?.result?.[0];
+                    if (!result) continue;
+                    const timestamps = result.timestamp;
+                    const closes = result.indicators?.quote?.[0]?.close;
+                    if (!timestamps || !closes) continue;
+                    priceHistory[sym] = {};
+                    timestamps.forEach((ts, i) => {
+                        if (closes[i] != null) {
+                            const dateStr = new Date(ts * 1000).toISOString().slice(0, 10);
+                            priceHistory[sym][dateStr] = closes[i];
+                        }
+                    });
+                }
+            } catch (err) {
+                console.error('[Portfolio Performance] Failed to fetch data:', err);
+                showError('Failed to load performance data. Please try again.');
+                return;
+            }
+
+            try {
+                localStorage.setItem(LS_KEY, JSON.stringify({ key: cacheKey, date: today, priceHistory }));
+            } catch (_) { /* ignore quota errors — cache is best-effort */ }
+        }
+
+        // Use S&P 500 trading days as the reference timeline, filtered to selected period
+        const cutoff = new Date();
+        cutoff.setDate(cutoff.getDate() - calendarDays);
+        const cutoffStr = cutoff.toISOString().slice(0, 10);
+        const sp500Dates = Object.keys(priceHistory['^GSPC'] || {}).sort();
+        const tradingDays = sp500Dates.filter(d => d >= cutoffStr);
+
+        if (tradingDays.length < 2) {
+            showError('Not enough historical data available.');
+            return;
+        }
+
+        // Build sorted date arrays per symbol for binary-search price lookups
+        const symbolDates = {};
+        for (const sym of symbolsToFetch) {
+            symbolDates[sym] = Object.keys(priceHistory[sym] || {}).sort();
+        }
+
+        // Return most recent close for sym on or before targetDate (forward-fill gaps)
+        const getPrice = (sym, targetDate) => {
+            const prices = priceHistory[sym];
+            if (!prices) return null;
+            const dates = symbolDates[sym];
+            if (!dates || dates.length === 0) return null;
+            let lo = 0, hi = dates.length - 1, found = -1;
+            while (lo <= hi) {
+                const mid = (lo + hi) >> 1;
+                if (dates[mid] <= targetDate) { found = mid; lo = mid + 1; }
+                else { hi = mid - 1; }
+            }
+            return found >= 0 ? prices[dates[found]] : null;
+        };
+
+        // Build holdings for each trading day
+        const holdingsPerDay = buildHoldingsPerDay(tradingDays);
+
+        // Find first day that has any holdings
+        const baseIdx = holdingsPerDay.findIndex(h =>
+            Object.values(h).some(q => Math.abs(q) > 0.0001)
+        );
+        if (baseIdx === -1) {
+            showError('No portfolio holdings found in this period.');
+            return;
+        }
+
+        const effectiveDays = tradingDays.slice(baseIdx);
+        const effectiveHoldings = holdingsPerDay.slice(baseIdx);
+
+        // Time-weighted return via daily chain-linking:
+        // Each day's factor = (value of YESTERDAY's holdings at TODAY's prices)
+        //                   / (value of YESTERDAY's holdings at YESTERDAY's prices)
+        // This strips out capital injections — a buy on day N only starts earning from day N+1.
+        const portfolioChanges = [0]; // day 0 always starts at 0%
+        let cumulativeFactor = 1.0;
+
+        for (let i = 1; i < effectiveDays.length; i++) {
+            const prevDay = effectiveDays[i - 1];
+            const currDay = effectiveDays[i];
+            const prevHoldings = effectiveHoldings[i - 1]; // held overnight into currDay
+
+            let vPrev = 0, vCurr = 0;
+            for (const [sym, qty] of Object.entries(prevHoldings)) {
+                if (qty < 0.0001) continue; // skip zero and negative (oversold/data errors)
+                const pPrev = getPrice(sym, prevDay);
+                const pCurr = getPrice(sym, currDay);
+                if (pPrev == null || pCurr == null) continue;
+                const fx = (symbolCurrency[sym] || 'CAD') === 'USD' ? usdToCad : 1;
+                vPrev += pPrev * qty * fx;
+                vCurr += pCurr * qty * fx;
+            }
+
+            if (vPrev > 0) cumulativeFactor *= vCurr / vPrev;
+            portfolioChanges.push((cumulativeFactor - 1) * 100);
+        }
+
+        // S&P 500 normalized from the same base date (simple price return is fine — no cash flows)
+        const sp500Prices = effectiveDays.map(day => priceHistory['^GSPC']?.[day] ?? null);
+        const baseSP500 = sp500Prices[0];
+        const sp500Changes = sp500Prices.map(p =>
+            baseSP500 > 0 && p != null ? ((p / baseSP500) - 1) * 100 : 0
+        );
+
+        // x-axis labels
+        const labels = effectiveDays.map(d => {
+            const date = new Date(d + 'T12:00:00Z');
+            return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+        });
+
+        // Clear loading text before creating chart
+        canvas.getContext('2d').clearRect(0, 0, canvas.width, canvas.height);
+
+        const chart = new Chart(canvas.getContext('2d'), {
+            type: 'line',
+            data: {
+                labels,
+                datasets: [
+                    {
+                        label: 'Portfolio',
+                        data: portfolioChanges,
+                        borderColor: '#3D8A9E',
+                        backgroundColor: 'rgba(61, 138, 158, 0.08)',
+                        borderWidth: 2,
+                        pointRadius: 3,
+                        pointHoverRadius: 5,
+                        tension: 0.1,
+                        fill: false
+                    },
+                    {
+                        label: 'S&P 500',
+                        data: sp500Changes,
+                        borderColor: '#E8A838',
+                        backgroundColor: 'rgba(232, 168, 56, 0.08)',
+                        borderWidth: 2,
+                        pointRadius: 3,
+                        pointHoverRadius: 5,
+                        tension: 0.1,
+                        fill: false
+                    }
+                ]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                animation: false,
+                plugins: {
+                    legend: {
+                        display: true,
+                        position: 'top',
+                        align: 'end',
+                        labels: {
+                            color: '#999',
+                            font: { size: 11 },
+                            boxWidth: 20,
+                            padding: 12
+                        }
+                    },
+                    tooltip: {
+                        backgroundColor: 'rgba(0, 0, 0, 0.9)',
+                        padding: 12,
+                        titleColor: '#fff',
+                        bodyColor: '#fff',
+                        borderColor: '#444',
+                        borderWidth: 1,
+                        callbacks: {
+                            title: (context) => context[0].label,
+                            label: (context) => {
+                                const val = context.parsed.y;
+                                const sign = val >= 0 ? '+' : '';
+                                return `${context.dataset.label}: ${sign}${val.toFixed(2)}%`;
+                            }
+                        }
+                    }
+                },
+                scales: {
+                    x: {
+                        grid: { color: '#2a2a2a', drawBorder: false },
+                        ticks: {
+                            color: '#999',
+                            maxRotation: 45,
+                            autoSkip: true,
+                            maxTicksLimit: 14
+                        }
+                    },
+                    y: {
+                        grid: {
+                            color: (context) => context.tick.value === 0 ? '#555' : '#2a2a2a',
+                            drawBorder: false
+                        },
+                        ticks: {
+                            color: '#999',
+                            callback: (value) => {
+                                const sign = value >= 0 ? '+' : '';
+                                return `${sign}${value.toFixed(1)}%`;
+                            }
+                        },
+                        title: {
+                            display: true,
+                            text: 'Cumulative Return',
+                            color: '#666',
+                            font: { size: 11 }
+                        }
+                    }
+                }
+            }
+        });
+
+        this.portfolioCharts.set(canvasId, chart);
+    }
+
+    async renderPortfolioPerformanceWeekly(canvasId, period = '1y') {
+        const rawPositions = this.loadPortfolioData('positions');
+        const rawTrades = this.loadPortfolioData('trades');
+        const canvas = document.getElementById(canvasId);
+        if (!canvas) return;
+
+        const existingChart = this.portfolioCharts.get(canvasId);
+        if (existingChart) {
+            existingChart.destroy();
+            this.portfolioCharts.delete(canvasId);
+        }
+
+        const showError = (msg) => {
+            const c = canvas.getContext('2d');
+            c.clearRect(0, 0, canvas.width, canvas.height);
+            c.fillStyle = '#666';
+            c.font = '13px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto';
+            c.textAlign = 'center';
+            c.fillText(msg, canvas.width / 2, canvas.height / 2);
+        };
+
+        if ((!rawPositions || rawPositions.length === 0) && (!rawTrades || rawTrades.length === 0)) {
+            showError('No portfolio data available. Upload positions or trades to see this chart.');
+            return;
+        }
+
+        showError('Loading performance data...');
+
+        let usdToCad = await this.getExchangeRate('USD', 'CAD') || 1.0;
+
+        // Build symbol→currency map
+        const symbolCurrency = {};
+        if (rawPositions) {
+            rawPositions.forEach(p => {
+                if (p.symbol && p.currency) symbolCurrency[p.symbol.toUpperCase()] = p.currency;
+            });
+        }
+
+        // Calendar-day lookback per period
+        const calendarDaysMap = { '6m': 182, '1y': 365, '2y': 730, '3y': 1095, '5y': 1825 };
+        const calendarDays = calendarDaysMap[period] ?? 365;
+
+        // Determine symbols and holdings builder (same trade/positions logic as daily chart)
+        const useTrades = rawTrades && rawTrades.length > 0;
+        let symbolsToFetch;
+        let buildHoldingsPerWeek;
+
+        if (useTrades) {
+            const trades = rawTrades
+                .filter(t => t.type?.toLowerCase() !== 'dividend' && parseFloat(t.quantity || 0) !== 0)
+                .sort((a, b) => (a.transaction_date || '').localeCompare(b.transaction_date || ''));
+
+            trades.forEach(t => {
+                const sym = t.symbol?.toUpperCase();
+                if (sym && t.currency && !symbolCurrency[sym]) symbolCurrency[sym] = t.currency;
+            });
+
+            symbolsToFetch = [...new Set(
+                trades
+                    .map(t => t.symbol?.toUpperCase())
+                    .filter(s => s && !this.portfolioExcludedSymbols.has(s))
+            )];
+
+            const signedQty = (trade) => {
+                const qty = parseFloat(trade.quantity || 0);
+                const type = trade.type?.toLowerCase();
+                if (type === 'buy')  return  Math.abs(qty);
+                if (type === 'sell') return -Math.abs(qty);
+                return qty;
+            };
+
+            buildHoldingsPerWeek = (weekDays) => {
+                const result = [];
+                const current = {};
+                let ti = 0;
+                for (const day of weekDays) {
+                    while (ti < trades.length && (trades[ti].transaction_date || '') <= day) {
+                        const t = trades[ti++];
+                        const sym = t.symbol?.toUpperCase();
+                        if (!sym || this.portfolioExcludedSymbols.has(sym)) continue;
+                        current[sym] = (current[sym] || 0) + signedQty(t);
+                    }
+                    result.push({ ...current });
+                }
+                return result;
+            };
+        } else {
+            // Fixed positions snapshot without trade history: applying current holdings
+            // retroactively to years ago produces deeply misleading results. A stock
+            // bought last month would show its full 5-year return as if held throughout.
+            showError('Trade history required for multi-year performance. Upload your trades CSV to use this chart.');
+            return;
+        }
+
+        if (symbolsToFetch.length === 0) {
+            showError('No tradeable symbols found in portfolio data.');
+            return;
+        }
+
+        // Fetch 5y of weekly data — cached once per day.
+        // All period views (6M→5Y) slice this single dataset client-side.
+        const allSymbols = [...symbolsToFetch, '^GSPC'];
+        const cacheKey = [...allSymbols].sort().join(',');
+        const today = new Date().toISOString().slice(0, 10);
+        const LS_KEY = 'perf_weekly_price_cache';
+
+        let priceHistory;
+
+        try {
+            const stored = localStorage.getItem(LS_KEY);
+            if (stored) {
+                const parsed = JSON.parse(stored);
+                if (parsed.key === cacheKey && parsed.date === today) {
+                    priceHistory = parsed.priceHistory;
+                }
+            }
+        } catch (_) { /* ignore parse errors */ }
+
+        if (!priceHistory) {
+            priceHistory = {};
+            try {
+                const batchUrl = `/api/stocks/batch?symbols=${allSymbols.map(encodeURIComponent).join(',')}&range=5y&interval=1wk`;
+                const resp = await fetch(batchUrl);
+                if (!resp.ok) throw new Error('Batch fetch failed');
+                const batchData = await resp.json();
+
+                for (const sym of allSymbols) {
+                    const result = batchData[sym]?.chart?.result?.[0];
+                    if (!result) continue;
+                    const timestamps = result.timestamp;
+                    const closes = result.indicators?.quote?.[0]?.close;
+                    if (!timestamps || !closes) continue;
+                    priceHistory[sym] = {};
+                    timestamps.forEach((ts, i) => {
+                        if (closes[i] != null) {
+                            const dateStr = new Date(ts * 1000).toISOString().slice(0, 10);
+                            priceHistory[sym][dateStr] = closes[i];
+                        }
+                    });
+                }
+            } catch (err) {
+                console.error('[Portfolio Performance Weekly] Failed to fetch data:', err);
+                showError('Failed to load performance data. Please try again.');
+                return;
+            }
+
+            try {
+                localStorage.setItem(LS_KEY, JSON.stringify({ key: cacheKey, date: today, priceHistory }));
+            } catch (_) { /* ignore quota errors — cache is best-effort */ }
+        }
+
+        // Filter weekly dates to selected period using ^GSPC as timeline reference
+        const cutoff = new Date();
+        cutoff.setDate(cutoff.getDate() - calendarDays);
+        const cutoffStr = cutoff.toISOString().slice(0, 10);
+        const sp500Dates = Object.keys(priceHistory['^GSPC'] || {}).sort();
+        const weekDays = sp500Dates.filter(d => d >= cutoffStr);
+
+        if (weekDays.length < 2) {
+            showError('Not enough historical data available.');
+            return;
+        }
+
+        // Build sorted date arrays per symbol for forward-fill lookups
+        const symbolDates = {};
+        for (const sym of symbolsToFetch) {
+            symbolDates[sym] = Object.keys(priceHistory[sym] || {}).sort();
+        }
+
+        const getPrice = (sym, targetDate) => {
+            const prices = priceHistory[sym];
+            if (!prices) return null;
+            const dates = symbolDates[sym];
+            if (!dates || dates.length === 0) return null;
+            let lo = 0, hi = dates.length - 1, found = -1;
+            while (lo <= hi) {
+                const mid = (lo + hi) >> 1;
+                if (dates[mid] <= targetDate) { found = mid; lo = mid + 1; }
+                else { hi = mid - 1; }
+            }
+            return found >= 0 ? prices[dates[found]] : null;
+        };
+
+        const holdingsPerWeek = buildHoldingsPerWeek(weekDays);
+
+        // Find first week that has any holdings
+        const baseIdx = holdingsPerWeek.findIndex(h =>
+            Object.values(h).some(q => Math.abs(q) > 0.0001)
+        );
+        if (baseIdx === -1) {
+            showError('No portfolio holdings found in this period.');
+            return;
+        }
+
+        const effectiveDays = weekDays.slice(baseIdx);
+        const effectiveHoldings = holdingsPerWeek.slice(baseIdx);
+
+        // Time-weighted return via weekly chain-linking
+        const portfolioChanges = [0];
+        let cumulativeFactor = 1.0;
+
+        for (let i = 1; i < effectiveDays.length; i++) {
+            const prevDay = effectiveDays[i - 1];
+            const currDay = effectiveDays[i];
+            const prevHoldings = effectiveHoldings[i - 1];
+
+            let vPrev = 0, vCurr = 0;
+            for (const [sym, qty] of Object.entries(prevHoldings)) {
+                if (qty < 0.0001) continue; // skip zero and negative (oversold/data errors)
+                const pPrev = getPrice(sym, prevDay);
+                const pCurr = getPrice(sym, currDay);
+                if (pPrev == null || pCurr == null) continue;
+                const fx = (symbolCurrency[sym] || 'CAD') === 'USD' ? usdToCad : 1;
+                vPrev += pPrev * qty * fx;
+                vCurr += pCurr * qty * fx;
+            }
+
+            if (vPrev > 0) cumulativeFactor *= vCurr / vPrev;
+            portfolioChanges.push((cumulativeFactor - 1) * 100);
+        }
+
+        // S&P 500 normalized from the same base date
+        const sp500Prices = effectiveDays.map(day => priceHistory['^GSPC']?.[day] ?? null);
+        const baseSP500 = sp500Prices[0];
+        const sp500Changes = sp500Prices.map(p =>
+            baseSP500 > 0 && p != null ? ((p / baseSP500) - 1) * 100 : 0
+        );
+
+        // x-axis labels — show month+year for longer ranges, month+day for shorter
+        const longRange = calendarDays > 400;
+        const labels = effectiveDays.map(d => {
+            const date = new Date(d + 'T12:00:00Z');
+            return longRange
+                ? date.toLocaleDateString('en-US', { month: 'short', year: '2-digit' })
+                : date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+        });
+
+        // Subtitle shows actual covered range so the user can tell when data runs short
+        const fmtDate = (d) => new Date(d + 'T12:00:00Z').toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
+        const actualStartDate = effectiveDays[0];
+        const requestedStartDate = weekDays[0];
+        const dateLimitedByTrades = actualStartDate > requestedStartDate;
+        const subtitleText = dateLimitedByTrades
+            ? `${fmtDate(actualStartDate)} → ${fmtDate(effectiveDays[effectiveDays.length - 1])} (trade history starts ${fmtDate(actualStartDate)})`
+            : `${fmtDate(effectiveDays[0])} → ${fmtDate(effectiveDays[effectiveDays.length - 1])}`;
+
+        canvas.getContext('2d').clearRect(0, 0, canvas.width, canvas.height);
+
+        const chart = new Chart(canvas.getContext('2d'), {
+            type: 'line',
+            data: {
+                labels,
+                datasets: [
+                    {
+                        label: 'Portfolio',
+                        data: portfolioChanges,
+                        borderColor: '#3D8A9E',
+                        backgroundColor: 'rgba(61, 138, 158, 0.08)',
+                        borderWidth: 2,
+                        pointRadius: 2,
+                        pointHoverRadius: 4,
+                        tension: 0.1,
+                        fill: false
+                    },
+                    {
+                        label: 'S&P 500',
+                        data: sp500Changes,
+                        borderColor: '#E8A838',
+                        backgroundColor: 'rgba(232, 168, 56, 0.08)',
+                        borderWidth: 2,
+                        pointRadius: 2,
+                        pointHoverRadius: 4,
+                        tension: 0.1,
+                        fill: false
+                    }
+                ]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                animation: false,
+                plugins: {
+                    legend: {
+                        display: true,
+                        position: 'top',
+                        align: 'end',
+                        labels: {
+                            color: '#999',
+                            font: { size: 11 },
+                            boxWidth: 20,
+                            padding: 12
+                        }
+                    },
+                    subtitle: {
+                        display: true,
+                        text: subtitleText,
+                        color: dateLimitedByTrades ? '#a0522d' : '#555',
+                        font: { size: 10 },
+                        padding: { bottom: 6 }
+                    },
+                    tooltip: {
+                        mode: 'index',
+                        intersect: false,
+                        backgroundColor: 'rgba(0, 0, 0, 0.9)',
+                        padding: 12,
+                        titleColor: '#fff',
+                        bodyColor: '#fff',
+                        borderColor: '#444',
+                        borderWidth: 1,
+                        callbacks: {
+                            title: (context) => context[0].label,
+                            label: (context) => {
+                                const val = context.parsed.y;
+                                const sign = val >= 0 ? '+' : '';
+                                return `${context.dataset.label}: ${sign}${val.toFixed(2)}%`;
+                            }
+                        }
+                    }
+                },
+                scales: {
+                    x: {
+                        grid: { color: '#2a2a2a', drawBorder: false },
+                        ticks: {
+                            color: '#999',
+                            maxRotation: 45,
+                            autoSkip: true,
+                            maxTicksLimit: longRange ? 12 : 14
+                        }
+                    },
+                    y: {
+                        grid: {
+                            color: (context) => context.tick.value === 0 ? '#555' : '#2a2a2a',
+                            drawBorder: false
+                        },
+                        ticks: {
+                            color: '#999',
+                            callback: (value) => {
+                                const sign = value >= 0 ? '+' : '';
+                                return `${sign}${value.toFixed(1)}%`;
+                            }
+                        },
+                        title: {
+                            display: true,
+                            text: 'Cumulative Return',
+                            color: '#666',
+                            font: { size: 11 }
+                        }
+                    }
+                }
+            }
+        });
+
+        this.portfolioCharts.set(canvasId, chart);
+    }
+
     removeGraph(graphId) {
         if (!confirm('Remove this graph?')) return;
 
@@ -3229,10 +4001,19 @@ class StockDashboard {
             }
         });
 
-        // Close modal with ESC key
+        // Fundamentals modal
+        document.getElementById('fundamentalsModalCloseBtn').addEventListener('click', () => {
+            this.closeFundamentalsModal();
+        });
+        document.getElementById('fundamentalsModal').addEventListener('click', (e) => {
+            if (e.target.id === 'fundamentalsModal') this.closeFundamentalsModal();
+        });
+
+        // Close modals with ESC key
         document.addEventListener('keydown', (e) => {
             if (e.key === 'Escape') {
                 this.closeModal();
+                this.closeFundamentalsModal();
             }
         });
 
@@ -3406,9 +4187,9 @@ class StockDashboard {
     async addToWatchlist(symbol) {
         if (this.watchlist.includes(symbol)) return;
 
-        this.watchlist.push(symbol);
+        this.watchlist.unshift(symbol);
         this.saveWatchlist();
-        this.renderWatchlistStock(symbol);
+        this.renderWatchlistStock(symbol, true);
         this.updateWatchlistAddButtons();
     }
 
@@ -3441,10 +4222,14 @@ class StockDashboard {
         });
     }
 
-    async renderWatchlistStock(symbol) {
+    async renderWatchlistStock(symbol, prepend = false) {
         const grid = document.getElementById('watchlistGrid');
         const card = this.createWatchlistCard(symbol);
-        grid.appendChild(card);
+        if (prepend && grid.firstChild) {
+            grid.insertBefore(card, grid.firstChild);
+        } else {
+            grid.appendChild(card);
+        }
 
         try {
             const data = await stockAPI.getStockData(symbol);
@@ -3452,6 +4237,19 @@ class StockDashboard {
         } catch (error) {
             const metricsEl = document.querySelector(`#watchlist-${symbol} .primary-metric`);
             if (metricsEl) metricsEl.textContent = 'Error loading data';
+        }
+
+        try {
+            const cached = stockAPI.getFundamentalsFromCache(symbol);
+            if (cached) {
+                this.updateCardWithFundamentals(symbol, cached);
+            } else {
+                const data = await stockAPI.fetchFundamentals([symbol]);
+                const fund = data[symbol.toUpperCase()];
+                if (fund) this.updateCardWithFundamentals(symbol, fund);
+            }
+        } catch (e) {
+            // Fundamentals unavailable — card shows dashes
         }
     }
 
@@ -3462,8 +4260,6 @@ class StockDashboard {
         this.updateWatchlistEmptyState();
         await Promise.all(renderPromises);
         this.analyzeWatchlistWithAI();
-        this.fetchBuyRecommendations();
-        this.fetchBuyRecommendationsPortfolio();
     }
 
     createWatchlistCard(symbol) {
@@ -3496,6 +4292,7 @@ class StockDashboard {
                         <div class="ma-info">
                             <span class="ma-comparison">Loading...</span>
                         </div>
+                        <div class="fundamentals-info hidden"></div>
                         <div class="watchlist-verdict-mobile hidden"></div>
                     </div>
                     <div class="chart-container">
@@ -3537,6 +4334,15 @@ class StockDashboard {
         card.addEventListener('dragend', (e) => this.handleDragEnd(e));
         card.addEventListener('dragenter', (e) => this.handleDragEnter(e));
         card.addEventListener('dragleave', (e) => this.handleDragLeave(e));
+
+        // Fundamentals click → open details modal
+        card.addEventListener('click', (e) => {
+            const fundTarget = e.target.closest('.fund-in-ai, .fundamentals-info');
+            if (fundTarget) {
+                e.stopPropagation();
+                this.openFundamentalsModal(symbol);
+            }
+        });
 
         return card;
     }
@@ -3885,7 +4691,10 @@ class StockDashboard {
                 <div class="stock-symbol">
                     <span class="drag-handle">⋮⋮</span>
                     ${symbol}
-                    <button class="watchlist-add-btn" data-symbol="${symbol}" onclick="dashboard.addToWatchlist('${symbol}')" title="Add to Watchlist">+</button>
+                    <button class="watchlist-add-btn" data-symbol="${symbol}" onclick="dashboard.addToWatchlist('${symbol}')" title="Add to Watchlist">
+                        <svg class="wl-btn-plus" width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="6" y1="1" x2="6" y2="11"/><line x1="1" y1="6" x2="11" y2="6"/></svg>
+                        <svg class="wl-btn-check" width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="1.5,6 4.5,9 10.5,3"/></svg>
+                    </button>
                 </div>
                 <button class="remove-btn" onclick="dashboard.removeStock('${symbol}')">×</button>
             </div>
@@ -3999,6 +4808,7 @@ class StockDashboard {
 
     refreshAllWatchlist() {
         stockAPI.cache.clear();
+        stockAPI.fundamentalsCache.clear();
         this.refreshAIAnalysis();
         this.renderAllWatchlistStocks();
     }
@@ -4016,12 +4826,14 @@ class StockDashboard {
         primaryMetric.className = `primary-metric ${data.isPositive ? 'positive' : 'negative'}`;
         primaryMetric.textContent = `${arrow} ${data.dayChangePercent}%`;
 
-        // Update secondary metrics (price and weekly change)
+        // Update secondary metrics (price, weekly, and monthly change)
         const secondaryMetrics = card.querySelector('.secondary-metrics');
         const weeklyArrow = data.isWeeklyPositive ? '▲' : '▼';
+        const monthlyArrow = data.isMonthlyPositive ? '▲' : '▼';
         secondaryMetrics.innerHTML = `
             <span class="price-value">${data.currentPrice}</span>
             <span class="weekly-change ${data.isWeeklyPositive ? 'positive' : 'negative'}">${weeklyArrow} ${data.weeklyChangePercent}% (7d)</span>
+            <span class="weekly-change ${data.isMonthlyPositive ? 'positive' : 'negative'}">${monthlyArrow} ${data.monthlyChangePercent}% (28d)</span>
         `;
 
 
@@ -4051,11 +4863,16 @@ class StockDashboard {
             if (csMetrics) {
                 const arrow = data.isPositive ? '▲' : '▼';
                 const weeklyArrow = data.isWeeklyPositive ? '▲' : '▼';
+                const monthlyArrow = data.isMonthlyPositive ? '▲' : '▼';
                 csMetrics.innerHTML = `
                     <span class="cs-change ${data.isPositive ? 'positive' : 'negative'}">${arrow} ${data.dayChangePercent}%</span>
                     <div class="cs-secondary">
-                        <span class="cs-price">${data.currentPrice}</span>
                         <span class="cs-7d ${data.isWeeklyPositive ? 'positive' : 'negative'}">${weeklyArrow} ${data.weeklyChangePercent}% 7d</span>
+                        <span class="cs-28d ${data.isMonthlyPositive ? 'positive' : 'negative'}">${monthlyArrow} ${data.monthlyChangePercent}% 28d</span>
+                    </div>
+                    <div class="cs-pe">
+                        <span class="cs-pe-trailing">–</span>
+                        <span class="cs-pe-forward">–</span>
                     </div>
                 `;
             }
@@ -4102,6 +4919,15 @@ class StockDashboard {
             aiSection.classList.remove('hidden');
             aiSection.innerHTML = '<div class="ai-loading">Analyzing...</div>';
         }
+        const aiDesc = card.querySelector('.ai-description');
+        if (aiDesc) {
+            aiDesc.classList.remove('hidden');
+            aiDesc.innerHTML = '<div class="ai-desc-loading">AI analysis loading...</div>';
+        }
+        const csRatings = card.querySelector('.cs-ratings');
+        if (csRatings) {
+            csRatings.innerHTML = '<div class="cs-ratings-loading"><span></span><span></span><span></span></div>';
+        }
 
         const d = this.stockDataMap[symbol];
         if (!d) return;
@@ -4136,225 +4962,17 @@ class StockDashboard {
         }
     }
 
-    getCachedBuyRecommendations() {
-        const today = new Date().toISOString().split('T')[0];
-        const raw = localStorage.getItem(`ai_buy_recs_${today}`);
-        return raw ? JSON.parse(raw) : null;
-    }
-
-    refreshBuyRecommendations() {
-        const today = new Date().toISOString().split('T')[0];
-        localStorage.removeItem(`ai_buy_recs_${today}`);
-        this.fetchBuyRecommendations();
-    }
-
-    async fetchBuyRecommendations() {
-        const box = document.getElementById('watchlist-buy-box');
-        const body = document.getElementById('buy-reco-body');
-        if (!box || !body) return;
-
-        const symbols = this.stockList.filter(s => s);
-        if (!symbols.length) return;
-
-        box.classList.remove('hidden');
-
-        const cached = this.getCachedBuyRecommendations();
-        if (cached) {
-            this.renderBuyRecommendations(cached);
-            return;
-        }
-
-        body.innerHTML = '<span class="ai-analysis-loading">Scanning tracking list...</span>';
-
-        try {
-            const response = await fetch('/api/ai/buy-recommendations', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ symbols })
-            });
-            if (!response.ok) throw new Error(`HTTP ${response.status}`);
-            const data = await response.json();
-            if (data.error) throw new Error(data.error);
-            const today = new Date().toISOString().split('T')[0];
-            localStorage.setItem(`ai_buy_recs_${today}`, JSON.stringify(data));
-            this.renderBuyRecommendations(data);
-        } catch (err) {
-            console.error('Buy recommendations failed:', err);
-            body.innerHTML = '<span class="ai-analysis-loading">Recommendations unavailable.</span>';
-        }
-    }
-
-    renderBuyRecommendations(data) {
-        const body = document.getElementById('buy-reco-body');
-        if (!body) return;
-        const buys = data.buys || [];
-        if (!buys.length) {
-            body.innerHTML = '<span class="ai-analysis-loading">No strong buys identified in your tracking list today.</span>';
-        } else {
-            body.innerHTML = buys.map(b => `
-                <div class="buy-pick">
-                    <span class="ai-verdict buy buy-pick-badge">Buy</span>
-                    <span class="buy-pick-symbol">${b.symbol}</span>
-                    <span class="buy-pick-rationale">${b.rationale}</span>
-                </div>
-            `).join('');
-        }
-        this._measureBuyRecoToggle();
-    }
-
-    _measureBuyRecoToggle() {
-        const watchlistView = document.getElementById('watchlistView');
-        if (watchlistView && watchlistView.classList.contains('hidden')) {
-            this._pendingBuyRecoMeasure = true;
-            return;
-        }
-        const body = document.getElementById('buy-reco-body');
-        const toggle = document.getElementById('buy-reco-toggle');
-        if (!body || !toggle) return;
-        body.classList.remove('ai-analysis-collapsed');
-        const fullHeight = body.scrollHeight;
-        body.classList.add('ai-analysis-collapsed');
-        const collapsedHeight = body.clientHeight;
-        const needsToggle = fullHeight > collapsedHeight + 2;
-        toggle.style.display = needsToggle ? 'block' : 'none';
-        body.onclick = needsToggle ? () => this.expandBuyReco() : null;
-        if (!needsToggle) body.classList.remove('ai-analysis-collapsed');
-        toggle.textContent = 'Show more';
-    }
-
-    expandBuyReco() {
-        const body = document.getElementById('buy-reco-body');
-        const toggle = document.getElementById('buy-reco-toggle');
-        if (!body || !body.classList.contains('ai-analysis-collapsed')) return;
-        body.classList.remove('ai-analysis-collapsed');
-        body.onclick = null;
-        if (toggle) { toggle.textContent = 'Show less'; toggle.style.display = 'block'; }
-    }
-
-    toggleBuyReco() {
-        const body = document.getElementById('buy-reco-body');
-        const toggle = document.getElementById('buy-reco-toggle');
-        if (!body || !toggle) return;
-        const collapsed = body.classList.toggle('ai-analysis-collapsed');
-        toggle.textContent = collapsed ? 'Show more' : 'Show less';
-        body.onclick = collapsed ? () => this.expandBuyReco() : null;
-    }
-
-    getCachedBuyRecommendationsPortfolio() {
-        const today = new Date().toISOString().split('T')[0];
-        const raw = localStorage.getItem(`ai_buy_recs_portfolio_${today}`);
-        return raw ? JSON.parse(raw) : null;
-    }
-
-    refreshBuyRecommendationsPortfolio() {
-        const today = new Date().toISOString().split('T')[0];
-        localStorage.removeItem(`ai_buy_recs_portfolio_${today}`);
-        this.fetchBuyRecommendationsPortfolio();
-    }
-
-    async fetchBuyRecommendationsPortfolio() {
-        const box = document.getElementById('watchlist-buy-box-portfolio');
-        const body = document.getElementById('buy-reco-portfolio-body');
-        if (!box || !body) return;
-
-        const symbols = this.stockList.filter(s => s);
-        if (!symbols.length) return;
-
-        const rawPositions = JSON.parse(localStorage.getItem('portfolio_positions') || '[]');
-        const portfolio = rawPositions.map(p => ({
-            symbol: p.symbol,
-            quantity: p.quantity,
-            average_entry_price: p.average_entry_price,
-            currency: p.currency
-        }));
-
-        box.classList.remove('hidden');
-
-        const cached = this.getCachedBuyRecommendationsPortfolio();
-        if (cached) {
-            this.renderBuyRecommendationsPortfolio(cached);
-            return;
-        }
-
-        body.innerHTML = '<span class="ai-analysis-loading">Scanning tracking list with portfolio context...</span>';
-
-        try {
-            const response = await fetch('/api/ai/buy-recommendations', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ symbols, portfolio: portfolio.length ? portfolio : undefined })
-            });
-            if (!response.ok) throw new Error(`HTTP ${response.status}`);
-            const data = await response.json();
-            if (data.error) throw new Error(data.error);
-            const today = new Date().toISOString().split('T')[0];
-            localStorage.setItem(`ai_buy_recs_portfolio_${today}`, JSON.stringify(data));
-            this.renderBuyRecommendationsPortfolio(data);
-        } catch (err) {
-            console.error('Buy recommendations (portfolio) failed:', err);
-            body.innerHTML = '<span class="ai-analysis-loading">Recommendations unavailable.</span>';
-        }
-    }
-
-    renderBuyRecommendationsPortfolio(data) {
-        const body = document.getElementById('buy-reco-portfolio-body');
-        if (!body) return;
-        const buys = data.buys || [];
-        if (!buys.length) {
-            body.innerHTML = '<span class="ai-analysis-loading">No strong buys identified given your existing portfolio.</span>';
-        } else {
-            body.innerHTML = buys.map(b => `
-                <div class="buy-pick">
-                    <span class="ai-verdict buy buy-pick-badge">Buy</span>
-                    <span class="buy-pick-symbol">${b.symbol}</span>
-                    <span class="buy-pick-rationale">${b.rationale}</span>
-                </div>
-            `).join('');
-        }
-        this._measureBuyRecoPortfolioToggle();
-    }
-
-    _measureBuyRecoPortfolioToggle() {
-        const watchlistView = document.getElementById('watchlistView');
-        if (watchlistView && watchlistView.classList.contains('hidden')) {
-            this._pendingBuyRecoPortfolioMeasure = true;
-            return;
-        }
-        const body = document.getElementById('buy-reco-portfolio-body');
-        const toggle = document.getElementById('buy-reco-portfolio-toggle');
-        if (!body || !toggle) return;
-        body.classList.remove('ai-analysis-collapsed');
-        const fullHeight = body.scrollHeight;
-        body.classList.add('ai-analysis-collapsed');
-        const collapsedHeight = body.clientHeight;
-        const needsToggle = fullHeight > collapsedHeight + 2;
-        toggle.style.display = needsToggle ? 'block' : 'none';
-        body.onclick = needsToggle ? () => this.expandBuyRecoPortfolio() : null;
-        if (!needsToggle) body.classList.remove('ai-analysis-collapsed');
-        toggle.textContent = 'Show more';
-    }
-
-    expandBuyRecoPortfolio() {
-        const body = document.getElementById('buy-reco-portfolio-body');
-        const toggle = document.getElementById('buy-reco-portfolio-toggle');
-        if (!body || !body.classList.contains('ai-analysis-collapsed')) return;
-        body.classList.remove('ai-analysis-collapsed');
-        body.onclick = null;
-        if (toggle) { toggle.textContent = 'Show less'; toggle.style.display = 'block'; }
-    }
-
-    toggleBuyRecoPortfolio() {
-        const body = document.getElementById('buy-reco-portfolio-body');
-        const toggle = document.getElementById('buy-reco-portfolio-toggle');
-        if (!body || !toggle) return;
-        const collapsed = body.classList.toggle('ai-analysis-collapsed');
-        toggle.textContent = collapsed ? 'Show more' : 'Show less';
-        body.onclick = collapsed ? () => this.expandBuyRecoPortfolio() : null;
-    }
-
     setAIBarStatus(text) {
-        const status = document.getElementById('ai-bar-status');
-        if (status) status.textContent = text;
+        // Extract a countdown number from messages like "AI · analyzing 3..."
+        const match = text.match(/analyzing (\d+)/);
+        const count = match ? parseInt(match[1]) : 0;
+        const loading = count > 0;
+
+        document.querySelectorAll('.watchlist-refresh-btn').forEach(btn => {
+            btn.classList.toggle('ai-loading-spin', loading);
+            const countEl = btn.querySelector('.watchlist-refresh-count');
+            if (countEl) countEl.textContent = loading ? count : '';
+        });
     }
 
     async analyzeWatchlistWithAI() {
@@ -4393,6 +5011,15 @@ class StockDashboard {
             if (aiSection) {
                 aiSection.classList.remove('hidden');
                 aiSection.innerHTML = '<div class="ai-loading">Analyzing...</div>';
+            }
+            const aiDesc = card.querySelector('.ai-description');
+            if (aiDesc) {
+                aiDesc.classList.remove('hidden');
+                aiDesc.innerHTML = '<div class="ai-desc-loading">AI analysis loading...</div>';
+            }
+            const csRatings = card.querySelector('.cs-ratings');
+            if (csRatings) {
+                csRatings.innerHTML = '<div class="cs-ratings-loading"><span></span><span></span><span></span></div>';
             }
         });
 
@@ -4478,9 +5105,10 @@ class StockDashboard {
             </div>
         `;
 
-        // ai-section (right of graph, desktop only): verdict badge + rating pills + per-card refresh
+        // ai-section (right of graph, desktop only): fundamentals + verdict badge + rating pills + per-card refresh
         aiSection.classList.remove('hidden');
         aiSection.innerHTML = `
+            <div class="fund-in-ai"></div>
             <div class="ai-verdict-row">
                 <div class="ai-verdict ${verdict}">${label}</div>
                 <button class="ai-card-refresh-btn" title="Refresh analysis">↻</button>
@@ -4491,6 +5119,9 @@ class StockDashboard {
             e.stopPropagation();
             this.refreshCardAnalysis(symbol);
         });
+        // Fill fundamentals placeholder immediately if already cached
+        const cachedFund = stockAPI.getFundamentalsFromCache(symbol);
+        if (cachedFund) this._fillFundInAI(card, cachedFund);
 
         // Mobile verdict badge (shown in left column on mobile)
         const mobileVerdict = card.querySelector('.watchlist-verdict-mobile');
@@ -4499,10 +5130,16 @@ class StockDashboard {
             mobileVerdict.innerHTML = `<div class="ai-verdict ${verdict}">${label}</div>`;
         }
 
-        // Collapsed summary ratings
+        // Collapsed summary ratings — compact squares with single letter + verdict
         const csRatings = card.querySelector('.cs-ratings');
         if (csRatings) {
-            csRatings.innerHTML = ratingsHTML;
+            csRatings.innerHTML = `
+                <div class="cs-verdict-signal ${verdict}">${label}</div>
+                <span class="cs-sq valuation-${analysis.valuation_rating || 'mid'}" title="Valuation: ${analysis.valuation_rating || '–'}">V</span>
+                <span class="cs-sq fundamentals-${analysis.fundamentals_rating || 'mid'}" title="Fundamentals: ${analysis.fundamentals_rating || '–'}">F</span>
+                <span class="cs-sq fit-${analysis.portfolio_fit_rating || 'mid'}" title="Portfolio fit: ${analysis.portfolio_fit_rating || '–'}">P</span>
+                <span class="cs-sq longterm-${analysis.long_term_rating || 'mid'}" title="Long term: ${analysis.long_term_rating || '–'}">L</span>
+            `;
         }
 
         // ai-description (below card body): shown on both desktop and mobile
@@ -4534,6 +5171,62 @@ class StockDashboard {
                 this.refreshCardAnalysis(symbol);
             });
         }
+    }
+
+    _fillFundInAI(card, fundamentals) {
+        const fmt = (v) => v != null ? parseFloat(v).toFixed(1) : '–';
+        const fmtMargin = (v) => v != null ? (parseFloat(v) * 100).toFixed(1) + '%' : '–';
+        const fmtYield = (v) => v != null ? parseFloat(v).toFixed(2) + '%' : '–';
+        const fundInAI = card.querySelector('.fund-in-ai');
+        if (!fundInAI) return;
+        fundInAI.innerHTML = `
+            <div class="fund-ai-row"><span class="fund-ai-label">P/E</span><span class="fund-ai-val">${fmt(fundamentals.trailingPE)}</span></div>
+            <div class="fund-ai-row"><span class="fund-ai-label">Fwd P/E</span><span class="fund-ai-val">${fmt(fundamentals.forwardPE)}</span></div>
+            <div class="fund-ai-row"><span class="fund-ai-label">Margin</span><span class="fund-ai-val">${fmtMargin(fundamentals.profitMargin)}</span></div>
+            <div class="fund-ai-row"><span class="fund-ai-label">Div</span><span class="fund-ai-val">${fmtYield(fundamentals.dividendYield)}</span></div>
+        `;
+    }
+
+    updateCardWithFundamentals(symbol, fundamentals) {
+        const card = document.getElementById(`watchlist-${symbol}`);
+        if (!card) return;
+
+        const fmt = (v) => v != null ? parseFloat(v).toFixed(1) : '–';
+        const fmtMargin = (v) => v != null ? (parseFloat(v) * 100).toFixed(1) + '%' : '–';
+        const fmtYield = (v) => v != null ? parseFloat(v).toFixed(2) + '%' : '–';
+
+        // Desktop right column: fill fund-in-ai placeholder (present once updateCardWithAI has run)
+        this._fillFundInAI(card, fundamentals);
+
+        // Mobile left column (hidden on desktop via CSS)
+        const fundInfo = card.querySelector('.fundamentals-info');
+        if (fundInfo) {
+            fundInfo.classList.remove('hidden');
+            fundInfo.innerHTML = `
+                <div class="fund-item">
+                    <span class="fund-label">P/E</span>
+                    <span class="fund-value">${fmt(fundamentals.trailingPE)}</span>
+                </div>
+                <div class="fund-item">
+                    <span class="fund-label">Fwd P/E</span>
+                    <span class="fund-value">${fmt(fundamentals.forwardPE)}</span>
+                </div>
+                <div class="fund-item">
+                    <span class="fund-label">Margin</span>
+                    <span class="fund-value">${fmtMargin(fundamentals.profitMargin)}</span>
+                </div>
+                <div class="fund-item">
+                    <span class="fund-label">Div</span>
+                    <span class="fund-value">${fmtYield(fundamentals.dividendYield)}</span>
+                </div>
+            `;
+        }
+
+        // Collapsed view: stacked PE beside 7d/28d
+        const csPeTrailing = card.querySelector('.cs-pe-trailing');
+        const csPeForward = card.querySelector('.cs-pe-forward');
+        if (csPeTrailing) csPeTrailing.textContent = `P/E ${fmt(fundamentals.trailingPE)}`;
+        if (csPeForward) csPeForward.textContent = `Fwd ${fmt(fundamentals.forwardPE)}`;
     }
 
     createChart(symbol, data, context = 'tracking') {
@@ -5032,6 +5725,157 @@ class StockDashboard {
         // Clear active buttons
         document.querySelectorAll('.period-btn').forEach(b => b.classList.remove('active'));
         document.querySelectorAll('.interval-btn').forEach(b => b.classList.remove('active'));
+    }
+
+    // ── Fundamentals Modal ─────────────────────────────────────────────────────
+
+    async openFundamentalsModal(symbol) {
+        const modal = document.getElementById('fundamentalsModal');
+        const modalSymbol = document.getElementById('fundamentalsModalSymbol');
+        const modalName = document.getElementById('fundamentalsModalName');
+        const body = document.getElementById('fundamentalsModalBody');
+
+        modalSymbol.textContent = symbol;
+        modalName.textContent = '';
+        body.innerHTML = '<div class="fundamentals-loading">Loading...</div>';
+        modal.classList.remove('hidden');
+
+        try {
+            const resp = await fetch(`/api/stock/${symbol}/details`);
+            if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+            const d = await resp.json();
+            if (d.error) throw new Error(d.error);
+
+            if (d.longName) modalName.textContent = `${d.longName}${d.sector ? ' · ' + d.sector : ''}`;
+
+            const fmt = (v, dec = 1) => v != null ? parseFloat(v).toFixed(dec) : '–';
+            const fmtPct = (v) => v != null ? (parseFloat(v) * 100).toFixed(1) + '%' : '–';
+            // dividendYield from yfinance is already in % form (0.39 = 0.39%)
+            const fmtYield = (v) => v != null ? parseFloat(v).toFixed(2) + '%' : '–';
+            const fmtLarge = (v) => {
+                if (v == null) return '–';
+                const n = parseFloat(v);
+                if (n >= 1e12) return (n / 1e12).toFixed(2) + 'T';
+                if (n >= 1e9)  return (n / 1e9).toFixed(2) + 'B';
+                if (n >= 1e6)  return (n / 1e6).toFixed(2) + 'M';
+                return n.toFixed(0);
+            };
+            const fmtPrice = (v) => v != null ? '$' + parseFloat(v).toFixed(2) : '–';
+            const fmtRec = (v) => v ? v.charAt(0).toUpperCase() + v.slice(1) : '–';
+
+            const sections = [
+                {
+                    title: 'Valuation',
+                    rows: [
+                        ['P/E (TTM)',       fmt(d.trailingPE)],
+                        ['Forward P/E',     fmt(d.forwardPE)],
+                        ['PEG Ratio',       fmt(d.trailingPegRatio, 2)],
+                        ['Price / Book',    fmt(d.priceToBook, 2)],
+                        ['Price / Sales',   fmt(d.priceToSalesTrailing12Months, 2)],
+                        ['EV / EBITDA',     fmt(d.enterpriseToEbitda, 1)],
+                        ['EV / Revenue',    fmt(d.enterpriseToRevenue, 2)],
+                    ]
+                },
+                {
+                    title: 'Profitability',
+                    rows: [
+                        ['Gross Margin',     fmtPct(d.grossMargins)],
+                        ['Operating Margin', fmtPct(d.operatingMargins)],
+                        ['EBITDA Margin',    fmtPct(d.ebitdaMargins)],
+                        ['Net Margin',       fmtPct(d.profitMargins)],
+                        ['Return on Equity', fmtPct(d.returnOnEquity)],
+                        ['Return on Assets', fmtPct(d.returnOnAssets)],
+                    ]
+                },
+                {
+                    title: 'Growth',
+                    rows: [
+                        ['Revenue Growth (YoY)',  fmtPct(d.revenueGrowth)],
+                        ['Earnings Growth (YoY)', fmtPct(d.earningsGrowth)],
+                        ['Quarterly EPS Growth',  fmtPct(d.earningsQuarterlyGrowth)],
+                    ]
+                },
+                {
+                    title: 'Financial Health',
+                    rows: [
+                        ['Debt / Equity',     fmt(d.debtToEquity, 2)],
+                        ['Current Ratio',     fmt(d.currentRatio, 2)],
+                        ['Quick Ratio',       fmt(d.quickRatio, 2)],
+                        ['Total Cash',        fmtLarge(d.totalCash)],
+                        ['Total Debt',        fmtLarge(d.totalDebt)],
+                        ['Free Cash Flow',    fmtLarge(d.freeCashflow)],
+                        ['Operating CF',      fmtLarge(d.operatingCashflow)],
+                    ]
+                },
+                {
+                    title: 'Dividends',
+                    rows: [
+                        ['Dividend Yield',       fmtYield(d.dividendYield)],
+                        ['Annual Dividend',       d.dividendRate != null ? '$' + fmt(d.dividendRate, 2) : '–'],
+                        ['Payout Ratio',          fmtPct(d.payoutRatio)],
+                        ['5Y Avg Yield',          d.fiveYearAvgDividendYield != null ? fmt(d.fiveYearAvgDividendYield, 2) + '%' : '–'],
+                    ]
+                },
+                {
+                    title: 'Market & Share Data',
+                    rows: [
+                        ['Market Cap',         fmtLarge(d.marketCap)],
+                        ['Enterprise Value',   fmtLarge(d.enterpriseValue)],
+                        ['Beta',               fmt(d.beta, 2)],
+                        ['Shares Outstanding', fmtLarge(d.sharesOutstanding)],
+                        ['Float',              fmtLarge(d.floatShares)],
+                        ['Short Ratio',        fmt(d.shortRatio, 1)],
+                        ['Short % Float',      d.shortPercentOfFloat != null ? fmtPct(d.shortPercentOfFloat) : '–'],
+                        ['52W High',           fmtPrice(d.fiftyTwoWeekHigh)],
+                        ['52W Low',            fmtPrice(d.fiftyTwoWeekLow)],
+                        ['50D Avg',            fmtPrice(d.fiftyDayAverage)],
+                        ['200D Avg',           fmtPrice(d.twoHundredDayAverage)],
+                        ['Avg Volume',         fmtLarge(d.averageVolume)],
+                    ]
+                },
+                {
+                    title: 'Per Share',
+                    rows: [
+                        ['EPS (TTM)',      fmtPrice(d.trailingEps)],
+                        ['EPS (Forward)', fmtPrice(d.forwardEps)],
+                        ['Book Value',    fmtPrice(d.bookValue)],
+                        ['Revenue/Share', fmtPrice(d.revenuePerShare)],
+                        ['Cash/Share',    fmtPrice(d.totalCashPerShare)],
+                    ]
+                },
+                {
+                    title: 'Analyst',
+                    rows: [
+                        ['Rating',         fmtRec(d.recommendationKey)],
+                        ['# Analysts',     d.numberOfAnalystOpinions != null ? String(d.numberOfAnalystOpinions) : '–'],
+                        ['Target (mean)',  fmtPrice(d.targetMeanPrice)],
+                        ['Target (high)',  fmtPrice(d.targetHighPrice)],
+                        ['Target (low)',   fmtPrice(d.targetLowPrice)],
+                    ]
+                },
+            ];
+
+            body.innerHTML = sections.map(s => `
+                <div class="fund-modal-section">
+                    <div class="fund-modal-section-title">${s.title}</div>
+                    <table class="fund-modal-table">
+                        ${s.rows.map(([label, val]) => `
+                            <tr>
+                                <td class="fund-modal-label">${label}</td>
+                                <td class="fund-modal-val">${val}</td>
+                            </tr>
+                        `).join('')}
+                    </table>
+                </div>
+            `).join('');
+        } catch (e) {
+            body.innerHTML = `<div class="fundamentals-loading">Failed to load data</div>`;
+            console.error('Fundamentals modal error:', e);
+        }
+    }
+
+    closeFundamentalsModal() {
+        document.getElementById('fundamentalsModal').classList.add('hidden');
     }
 
     renderCandlestickChart(data) {

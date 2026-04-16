@@ -59,11 +59,12 @@
                 <div class="stock-action-btns stock-action-desktop hidden" id="watchlistActionBtns">
                     <button onclick="dashboard.collapseAllWatchlist()" title="Collapse all cards">▲</button>
                     <button onclick="dashboard.expandAllWatchlist()" title="Expand all cards">▼</button>
-                    <button onclick="dashboard.refreshAllWatchlist()" title="Refresh all">
-                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <button class="watchlist-refresh-btn" onclick="dashboard.refreshAllWatchlist()" title="Refresh all">
+                        <svg class="watchlist-refresh-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                             <polyline points="23 4 23 10 17 10"/>
                             <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/>
                         </svg>
+                        <span class="watchlist-refresh-count"></span>
                     </button>
                 </div>
             </div>
@@ -106,17 +107,17 @@
                     >
                     <button id="addWatchlistBtn">Add</button>
                 </div>
-                <div class="stock-action-btns stock-action-mobile">
+                <div class="stock-action-btns watchlist-action-mobile">
                     <button onclick="dashboard.collapseAllWatchlist()" title="Collapse all cards">▲</button>
                     <button onclick="dashboard.expandAllWatchlist()" title="Expand all cards">▼</button>
-                    <button onclick="dashboard.refreshAllWatchlist()" title="Refresh all">
-                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <button class="watchlist-refresh-btn" onclick="dashboard.refreshAllWatchlist()" title="Refresh all">
+                        <svg class="watchlist-refresh-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                             <polyline points="23 4 23 10 17 10"/>
                             <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/>
                         </svg>
+                        <span class="watchlist-refresh-count"></span>
                     </button>
                 </div>
-                <span id="ai-bar-status"></span>
             </div>
             <div class="controls portfolio-controls hidden">
                 <!-- Mobile: upload/eye buttons sit left of the graph input -->
@@ -169,34 +170,6 @@
         </div>
 
         <div id="watchlistView" class="tab-content hidden">
-            <div id="watchlist-buy-box" class="ai-analysis-card buy-reco-box hidden">
-                <div class="ai-analysis-header">
-                    <span class="ai-analysis-label">AI Buy Picks — Tracking List</span>
-                    <button class="ai-analysis-refresh-btn" onclick="dashboard.refreshBuyRecommendations()" title="Refresh buy recommendations">
-                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-                            <path d="M23 4v6h-6"/><path d="M1 20v-6h6"/>
-                            <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>
-                        </svg>
-                    </button>
-                </div>
-                <div id="buy-reco-body" class="ai-analysis-body">
-                    <span class="ai-analysis-loading">Analyzing tracking list...</span>
-                </div>
-                <button class="ai-analysis-toggle" id="buy-reco-toggle" onclick="dashboard.toggleBuyReco()" style="display:none">Show more</button>
-            </div>
-            <div id="watchlist-buy-box-portfolio" class="ai-analysis-card buy-reco-box hidden">
-                <div class="ai-analysis-header">
-                    <span class="ai-analysis-label">AI Buy Picks — With Portfolio Context</span>
-                    <button class="ai-analysis-refresh-btn" onclick="dashboard.refreshBuyRecommendationsPortfolio()" title="Refresh">
-                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-                            <path d="M23 4v6h-6"/><path d="M1 20v-6h6"/>
-                            <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>
-                        </svg>
-                    </button>
-                </div>
-                <div id="buy-reco-portfolio-body" class="ai-analysis-body"></div>
-                <button class="ai-analysis-toggle" id="buy-reco-portfolio-toggle" onclick="dashboard.toggleBuyRecoPortfolio()" style="display:none">Show more</button>
-            </div>
             <div id="watchlistGrid" class="stock-grid">
                 <!-- Watchlist cards will be dynamically inserted here -->
             </div>
@@ -235,6 +208,18 @@
                         <button class="interval-btn" data-interval="1mo">M</button>
                     </div>
                 </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Fundamentals Modal -->
+    <div id="fundamentalsModal" class="modal hidden">
+        <div class="modal-content fundamentals-modal-content">
+            <button id="fundamentalsModalCloseBtn" class="modal-close-btn">×</button>
+            <h2 id="fundamentalsModalSymbol"></h2>
+            <p id="fundamentalsModalName" class="fundamentals-modal-name"></p>
+            <div id="fundamentalsModalBody" class="fundamentals-modal-body">
+                <div class="fundamentals-loading">Loading...</div>
             </div>
         </div>
     </div>

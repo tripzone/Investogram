@@ -164,8 +164,12 @@ h1 {
     gap: 4px;
 }
 
-/* Desktop: show header copy, hide controls copy */
+/* Desktop: show header copy, hide controls copies */
 .stock-action-mobile {
+    display: none;
+}
+
+.watchlist-action-mobile {
     display: none;
 }
 
@@ -508,46 +512,6 @@ h1 {
     font-size: 0.82rem;
 }
 
-/* Buy recommendations box */
-.buy-reco-box {
-    margin-bottom: 12px;
-}
-
-.buy-reco-box.hidden {
-    display: none;
-}
-
-#buy-reco-body {
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-}
-
-.buy-pick {
-    display: flex;
-    align-items: baseline;
-    gap: 8px;
-    flex-wrap: wrap;
-}
-
-.buy-pick-badge {
-    font-size: 0.65rem;
-    padding: 2px 7px;
-    flex-shrink: 0;
-}
-
-.buy-pick-symbol {
-    font-size: 0.88rem;
-    font-weight: 600;
-    color: #e0e0e0;
-    flex-shrink: 0;
-}
-
-.buy-pick-rationale {
-    font-size: 0.82rem;
-    color: #c0cce8;
-    line-height: 1.4;
-}
 
 .portfolio-filter-bar {
     grid-column: 1 / -1;
@@ -1141,7 +1105,8 @@ button:active {
     display: none;
     padding: 4px 0 8px;
     gap: 6px;
-    flex-direction: column;
+    flex-direction: row;
+    align-items: center;
 }
 
 .stock-card.collapsed .collapsed-summary {
@@ -1152,6 +1117,7 @@ button:active {
     display: flex;
     align-items: center;
     gap: 10px;
+    flex: 1;
 }
 
 .cs-change {
@@ -1166,19 +1132,168 @@ button:active {
     gap: 2px;
 }
 
-.cs-price {
-    font-size: 11px;
-    color: #ccc;
-    line-height: 1;
-}
-
 .cs-7d {
     font-size: 11px;
     line-height: 1;
 }
 
-.cs-change.positive, .cs-7d.positive { color: #48bb78; }
-.cs-change.negative, .cs-7d.negative { color: #f56565; }
+.cs-28d {
+    font-size: 11px;
+    line-height: 1;
+}
+
+.cs-change.positive { color: #48bb78; }
+.cs-change.negative { color: #f56565; }
+.cs-7d.positive, .cs-28d.positive { color: #48bb78; }
+.cs-7d.negative, .cs-28d.negative { color: #f56565; }
+
+.cs-pe {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    padding-left: 10px;
+    border-left: 1px solid #444;
+}
+
+.cs-pe-trailing,
+.cs-pe-forward {
+    font-size: 11px;
+    color: #a0aec0;
+    line-height: 1;
+}
+
+/* Fundamentals in right column (desktop ai-section) */
+.fund-in-ai {
+    margin-bottom: 8px;
+    padding-bottom: 8px;
+    border-bottom: 1px solid #333;
+}
+
+.fund-ai-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 12px;
+    padding: 2px 0;
+}
+
+.fund-ai-label {
+    font-size: 11px;
+    color: #718096;
+    white-space: nowrap;
+}
+
+.fund-ai-val {
+    font-size: 12px;
+    color: #e2e8f0;
+    font-weight: 500;
+    text-align: right;
+}
+
+/* Fundamentals in left column — mobile only */
+.fundamentals-info {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px 14px;
+    margin-top: 6px;
+    padding-top: 6px;
+    border-top: 1px solid #333;
+}
+
+.fundamentals-info.hidden {
+    display: none;
+}
+
+/* Hide left-column fundamentals on desktop (shown in right column instead) */
+@media (min-width: 769px) {
+    #watchlistGrid .fundamentals-info {
+        display: none !important;
+    }
+}
+
+.fund-item {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+}
+
+.fund-label {
+    font-size: 10px;
+    color: #718096;
+    font-weight: 500;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+}
+
+.fund-value {
+    font-size: 13px;
+    color: #e2e8f0;
+    font-weight: 500;
+}
+
+/* Collapsed ratings: verdict + compact letter squares */
+.cs-ratings {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    flex-shrink: 0;
+}
+
+.cs-verdict-signal {
+    font-size: 9px;
+    font-weight: 700;
+    letter-spacing: 0.6px;
+    text-transform: uppercase;
+    padding: 2px 6px;
+    border-radius: 3px;
+    flex-shrink: 0;
+    margin-right: 2px;
+}
+
+.cs-verdict-signal.buy {
+    background: rgba(72, 187, 120, 0.15);
+    color: #48bb78;
+    border: 1px solid rgba(72, 187, 120, 0.3);
+}
+
+.cs-verdict-signal.hold {
+    background: rgba(160, 160, 160, 0.12);
+    color: #aaa;
+    border: 1px solid rgba(160, 160, 160, 0.25);
+}
+
+.cs-verdict-signal.avoid {
+    background: rgba(245, 101, 101, 0.15);
+    color: #f56565;
+    border: 1px solid rgba(245, 101, 101, 0.3);
+}
+
+.cs-sq {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 18px;
+    height: 18px;
+    border-radius: 3px;
+    font-size: 9px;
+    font-weight: 700;
+    background: rgba(255,255,255,0.05);
+    color: #555;
+    cursor: default;
+}
+
+/* Valuation */
+.cs-sq.valuation-cheap { color: #48bb78; background: rgba(72,187,120,0.15); }
+.cs-sq.valuation-expensive { color: #f56565; background: rgba(245,101,101,0.15); }
+/* Fundamentals */
+.cs-sq.fundamentals-strong { color: #48bb78; background: rgba(72,187,120,0.15); }
+.cs-sq.fundamentals-weak { color: #f56565; background: rgba(245,101,101,0.15); }
+/* Portfolio fit */
+.cs-sq.fit-high { color: #48bb78; background: rgba(72,187,120,0.15); }
+.cs-sq.fit-low { color: #f56565; background: rgba(245,101,101,0.15); }
+/* Long term */
+.cs-sq.longterm-bullish { color: #48bb78; background: rgba(72,187,120,0.15); }
+.cs-sq.longterm-bearish { color: #f56565; background: rgba(245,101,101,0.15); }
 
 .stock-header {
     display: flex;
@@ -1237,8 +1352,6 @@ button:active {
     width: 18px;
     height: 18px;
     cursor: pointer;
-    font-size: 16px;
-    line-height: 1;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -1252,12 +1365,17 @@ button:active {
     background: transparent;
 }
 
-.watchlist-add-btn.in-watchlist {
-    color: #667eea;
-}
+/* Show plus by default, hide check */
+.wl-btn-plus { display: block; }
+.wl-btn-check { display: none; }
+
+/* When in watchlist: show check, hide plus */
+.watchlist-add-btn.in-watchlist { color: #667eea; cursor: default; }
+.watchlist-add-btn.in-watchlist .wl-btn-plus { display: none; }
+.watchlist-add-btn.in-watchlist .wl-btn-check { display: block; }
 
 .watchlist-add-btn.in-watchlist:hover {
-    color: #5a67d8;
+    color: #667eea;
 }
 
 .stock-metrics {
@@ -1502,6 +1620,27 @@ button:active {
     color: #888;
 }
 
+@keyframes spin {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(-360deg); }
+}
+
+.watchlist-refresh-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+}
+
+.watchlist-refresh-btn.ai-loading-spin .watchlist-refresh-icon {
+    animation: spin 0.8s linear infinite;
+}
+
+.watchlist-refresh-count {
+    font-size: 10px;
+    color: #888;
+    min-width: 8px;
+}
+
 .ai-section {
     border-top: 1px solid #333;
     padding-top: 12px;
@@ -1694,6 +1833,39 @@ button:active {
     padding: 4px 0;
 }
 
+/* ai-description loading state (mobile / below-card) */
+.ai-desc-loading {
+    font-size: 11px;
+    color: #444;
+    padding: 6px 0 4px;
+    font-style: italic;
+}
+
+/* Collapsed ratings loading — three pulsing dots */
+.cs-ratings-loading {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding: 2px 0;
+}
+
+.cs-ratings-loading span {
+    display: inline-block;
+    width: 18px;
+    height: 18px;
+    border-radius: 3px;
+    background: #2a2a2a;
+    animation: cs-pulse 1.4s ease-in-out infinite;
+}
+
+.cs-ratings-loading span:nth-child(2) { animation-delay: 0.2s; }
+.cs-ratings-loading span:nth-child(3) { animation-delay: 0.4s; }
+
+@keyframes cs-pulse {
+    0%, 100% { opacity: 0.3; }
+    50% { opacity: 0.7; }
+}
+
 .ai-analyze-btn {
     font-size: 11px;
     font-weight: 700;
@@ -1842,6 +2014,11 @@ button:active {
     }
 
     .stock-action-mobile {
+        display: flex;
+        order: -1;
+    }
+
+    .watchlist-action-mobile {
         display: flex;
         order: -1;
     }
@@ -2216,6 +2393,102 @@ button:active {
     .watchlist-verdict-mobile {
         display: block;
         margin-top: 6px;
+    }
+}
+
+/* Fundamentals Modal */
+.fundamentals-modal-content {
+    max-width: 680px;
+    padding: 28px 32px 24px;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    max-height: 88vh;
+}
+
+.fundamentals-modal-content h2 {
+    font-size: 16px;
+    font-weight: 600;
+    color: #e2e8f0;
+    margin: 0 0 2px 0;
+    padding-right: 32px;
+}
+
+.fundamentals-modal-name {
+    font-size: 11px;
+    color: #718096;
+    margin: 0 0 20px 0;
+}
+
+.fundamentals-modal-body {
+    overflow-y: auto;
+    flex: 1;
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 20px 28px;
+    align-content: start;
+}
+
+.fundamentals-loading {
+    color: #666;
+    font-size: 13px;
+    grid-column: 1 / -1;
+    padding: 20px 0;
+}
+
+.fund-modal-section {
+    min-width: 0;
+}
+
+.fund-modal-section-title {
+    font-size: 10px;
+    font-weight: 700;
+    color: #4a5568;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    margin-bottom: 6px;
+    padding-bottom: 4px;
+    border-bottom: 1px solid #2a2a2a;
+}
+
+.fund-modal-table {
+    width: 100%;
+    border-collapse: collapse;
+}
+
+.fund-modal-table tr:not(:last-child) td {
+    padding-bottom: 4px;
+}
+
+.fund-modal-label {
+    font-size: 12px;
+    color: #718096;
+    padding-right: 12px;
+    white-space: nowrap;
+    width: 50%;
+}
+
+.fund-modal-val {
+    font-size: 12px;
+    color: #e2e8f0;
+    font-weight: 500;
+    text-align: right;
+}
+
+/* Clickable fundamentals region */
+.fund-in-ai,
+.fundamentals-info {
+    cursor: pointer;
+}
+
+.fund-in-ai:hover .fund-ai-val,
+.fundamentals-info:hover .fund-value {
+    color: #a0aec0;
+}
+
+@media (max-width: 600px) {
+    .fundamentals-modal-body {
+        grid-template-columns: 1fr;
     }
 }
 
