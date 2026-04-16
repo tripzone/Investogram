@@ -4434,6 +4434,10 @@ class StockDashboard {
             } else {
                 const idx = collapsedStocks.indexOf(symbol);
                 if (idx > -1) collapsedStocks.splice(idx, 1);
+                requestAnimationFrame(() => {
+                    const chart = this.charts.get(`wl-${symbol}`);
+                    if (chart) chart.resize();
+                });
             }
             this.saveCollapsedStocks(collapsedStocks);
         });
@@ -4445,6 +4449,10 @@ class StockDashboard {
                 const idx = collapsedStocks.indexOf(symbol);
                 if (idx > -1) collapsedStocks.splice(idx, 1);
                 this.saveCollapsedStocks(collapsedStocks);
+                requestAnimationFrame(() => {
+                    const chart = this.charts.get(`wl-${symbol}`);
+                    if (chart) chart.resize();
+                });
             }
         });
 
@@ -4614,7 +4622,10 @@ class StockDashboard {
             .map(e => this.parseStockEntry(e))
             .filter(p => !p.isDivider)
             .map(p => p.symbol);
-        await stockAPI.prefetchStockData(symbols);
+        await Promise.all([
+            stockAPI.prefetchStockData(symbols),
+            stockAPI.fetchFundamentals(symbols).catch(() => {})
+        ]);
 
         // Clear and rebuild the grid after prefetch so concurrent calls don't
         // both append their tiles to the same (non-cleared) grid.
@@ -4669,11 +4680,18 @@ class StockDashboard {
         this.updateWatchlistAddButtons();
 
         try {
-            // Fetch data
-            const data = await stockAPI.getStockData(symbol);
+            // Fetch price data and fundamentals in parallel
+            const [data, funds] = await Promise.all([
+                stockAPI.getStockData(symbol),
+                stockAPI.fetchFundamentals([symbol]).catch(() => ({}))
+            ]);
 
-            // Update card with data
+            // updateStockCard must run first — it sets secondaryMetrics.innerHTML
+            // which creates the .tracking-pe-value span
             this.updateStockCard(symbol, data);
+
+            const fund = funds[symbol.toUpperCase()];
+            if (fund) this.updateTrackingCardPE(symbol, fund);
         } catch (error) {
             this.showCardError(symbol, error.message);
         }
@@ -4924,6 +4942,12 @@ class StockDashboard {
             const card = document.getElementById(`watchlist-${symbol}`);
             if (card) card.classList.remove('collapsed');
         });
+        requestAnimationFrame(() => {
+            this.watchlist.forEach(symbol => {
+                const chart = this.charts.get(`wl-${symbol}`);
+                if (chart) chart.resize();
+            });
+        });
     }
 
     refreshAllWatchlist() {
@@ -4953,7 +4977,7 @@ class StockDashboard {
         secondaryMetrics.innerHTML = `
             <span class="price-value">${data.currentPrice}</span>
             <span class="weekly-change ${data.isWeeklyPositive ? 'positive' : 'negative'}">${weeklyArrow} ${data.weeklyChangePercent}% (7d)</span>
-            ${context === 'watchlist' ? `<span class="weekly-change ${data.isMonthlyPositive ? 'positive' : 'negative'}">${monthlyArrow} ${data.monthlyChangePercent}% (28d)</span>` : ''}
+            ${context === 'watchlist' ? `<span class="weekly-change ${data.isMonthlyPositive ? 'positive' : 'negative'}">${monthlyArrow} ${data.monthlyChangePercent}% (28d)</span>` : '<span class="tracking-pe-value">–</span>'}
         `;
 
 
@@ -5386,6 +5410,14 @@ class StockDashboard {
         const csPeForward = card.querySelector('.cs-pe-forward');
         if (csPeTrailing) csPeTrailing.textContent = `P/E ${fmt(fundamentals.trailingPE)}`;
         if (csPeForward) csPeForward.textContent = `Fwd ${fmt(fundamentals.forwardPE)}`;
+    }
+
+    updateTrackingCardPE(symbol, fundamentals) {
+        const card = document.getElementById(`stock-${symbol}`);
+        if (!card) return;
+        const fmt = (v) => v != null ? parseFloat(v).toFixed(1) : '–';
+        const peEl = card.querySelector('.tracking-pe-value');
+        if (peEl) peEl.textContent = `P/E ${fmt(fundamentals.trailingPE)}`;
     }
 
     createChart(symbol, data, context = 'tracking') {

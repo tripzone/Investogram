@@ -1450,6 +1450,35 @@ button:active {
     transform: rotate(-90deg);
 }
 
+/* When collapsed, show primary metric + 7d on a single row */
+.stock-card.collapsed .stock-metrics {
+    flex-direction: row;
+    align-items: center;
+    gap: 8px;
+}
+
+.stock-card.collapsed .price-value {
+    display: none;
+}
+
+.stock-card.collapsed .secondary-metrics {
+    flex-direction: column;
+    gap: 3px;
+    align-items: flex-start;
+    justify-content: center;
+    margin-left: 12px;
+}
+
+.stock-card.collapsed .weekly-change {
+    font-size: 11px;
+    font-weight: 500;
+    line-height: 1;
+}
+
+.stock-card.collapsed .tracking-pe-value {
+    line-height: 1;
+}
+
 .primary-metric.positive {
     color: #48bb78;
 }
@@ -1471,6 +1500,17 @@ button:active {
     color: #aaa;
     font-weight: 500;
     white-space: nowrap;
+}
+
+.tracking-pe-value {
+    font-size: 11px;
+    color: #718096;
+    font-weight: 500;
+    white-space: nowrap;
+}
+
+.stock-card.collapsed .tracking-pe-value {
+    font-size: 11px;
 }
 
 .weekly-change {
@@ -1495,18 +1535,17 @@ button:active {
 
 .ma-info {
     display: flex;
-    gap: 15px;
+    gap: 8px;
     align-items: center;
     padding-top: 8px;
-    border-top: 1px solid #333;
-    font-size: 12px;
-    flex-wrap: nowrap;
+    font-size: 11px;
 }
 
 .ma-comparison {
+    flex: 1;
+    min-width: 0;
     font-weight: 600;
-    font-size: 12px;
-    white-space: nowrap;
+    font-size: 11px;
 }
 
 .ma-comparison.ma-50.above {
@@ -2644,6 +2683,7 @@ button:active {
 
     .watchlist-card-left .chart-container {
         flex: 0 0 33.33%;
+        min-width: 0;
         height: 80px;
         padding-right: 8px;
     }
