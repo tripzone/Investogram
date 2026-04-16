@@ -13,6 +13,8 @@ class StockDashboard {
         this.currentModalSymbol = null;
         this.currentModalRange = null;
         this.currentModalInterval = null;
+        this._activeModalType = null;   // 'candlestick' | 'ai' | 'fundamentals'
+        this._activeModalSymbol = null;
         this.maVisibility = {}; // Store moving average visibility state
         this.selectedFile = null;
         this.selectedGraph = null;
@@ -59,7 +61,6 @@ class StockDashboard {
         }
 
         this.renderAllStocks();
-        this.renderAllWatchlistStocks();
         this.renderPortfolioGraphs();
 
         // Update divider and card widths on window resize
@@ -198,6 +199,24 @@ class StockDashboard {
             hideStockActions();
             showWatchlistActions();
 
+            // Lazy render: first visit fetches only cache misses from tracking tab;
+            // subsequent visits are instant since cards are already in the DOM.
+            // rAF defers until after the browser has laid out the now-visible tab,
+            // so Chart.js reads the correct container width on first render.
+            if (!this._watchlistRendered) {
+                this._watchlistRendered = true;
+                requestAnimationFrame(() => this.renderAllWatchlistStocks());
+            } else {
+                // Cards may have been added while this tab was hidden (e.g. via the
+                // Tracking tab + button). Chart.js measures 0px inside display:none,
+                // so resize every watchlist chart now that the view is visible.
+                requestAnimationFrame(() => {
+                    this.watchlist.forEach(symbol => {
+                        const chart = this.charts.get(`wl-${symbol}`);
+                        if (chart) chart.resize();
+                    });
+                });
+            }
         });
 
         portfolioTab.addEventListener('click', () => {
@@ -1481,8 +1500,8 @@ class StockDashboard {
         }
 
         try {
-            // Use frankfurter.app API (free, no API key needed)
-            const response = await fetch(`https://api.frankfurter.app/latest?from=${from}&to=${to}`);
+            // Use frankfurter.dev API (free, no API key needed)
+            const response = await fetch(`https://api.frankfurter.dev/v1/latest?from=${from}&to=${to}`);
             const data = await response.json();
 
             if (data.rates && data.rates[to]) {
@@ -3994,7 +4013,8 @@ class StockDashboard {
             this.closeModal();
         });
 
-        // Close modal when clicking outside
+        // Close candlestick modal
+        document.getElementById('modalCloseBtn').addEventListener('click', () => this.closeModal());
         document.getElementById('candlestickModal').addEventListener('click', (e) => {
             if (e.target.id === 'candlestickModal') {
                 this.closeModal();
@@ -4009,12 +4029,44 @@ class StockDashboard {
             if (e.target.id === 'fundamentalsModal') this.closeFundamentalsModal();
         });
 
-        // Close modals with ESC key
+        // AI Analysis modal
+        document.getElementById('aiModalCloseBtn').addEventListener('click', () => this.closeAIModal());
+        document.getElementById('aiModal').addEventListener('click', (e) => {
+            if (e.target.id === 'aiModal') this.closeAIModal();
+        });
+
+        // Close modals with ESC key; navigate between watchlist stocks with arrows
         document.addEventListener('keydown', (e) => {
             if (e.key === 'Escape') {
                 this.closeModal();
                 this.closeFundamentalsModal();
+                this.closeAIModal();
+            } else if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+                if (this._activeModalType) {
+                    e.preventDefault();
+                    this._navigateModal(e.key === 'ArrowRight' ? 1 : -1);
+                }
             }
+        });
+
+        // Swipe to navigate between watchlist stocks in any modal
+        const _swipeState = {};
+        ['candlestickModal', 'aiModal', 'fundamentalsModal'].forEach(id => {
+            const el = document.getElementById(id);
+            el.addEventListener('touchstart', (e) => {
+                _swipeState.x = e.touches[0].clientX;
+                _swipeState.y = e.touches[0].clientY;
+            }, { passive: true });
+            el.addEventListener('touchend', (e) => {
+                if (_swipeState.x == null) return;
+                const dx = e.changedTouches[0].clientX - _swipeState.x;
+                const dy = e.changedTouches[0].clientY - _swipeState.y;
+                _swipeState.x = null;
+                // Only treat as horizontal swipe if it's more horizontal than vertical
+                if (Math.abs(dx) > 50 && Math.abs(dx) > Math.abs(dy) * 1.5) {
+                    this._navigateModal(dx < 0 ? 1 : -1);
+                }
+            }, { passive: true });
         });
 
         // Period selector buttons
@@ -4172,8 +4224,9 @@ class StockDashboard {
 
             this.watchlist.push(symbol);
             this.saveWatchlist();
-            this.renderWatchlistStock(symbol);
+            await this.renderWatchlistStock(symbol);
             this.updateWatchlistAddButtons();
+            this.analyzeWatchlistWithAI();
 
             input.value = '';
         } catch (error) {
@@ -4189,8 +4242,9 @@ class StockDashboard {
 
         this.watchlist.unshift(symbol);
         this.saveWatchlist();
-        this.renderWatchlistStock(symbol, true);
+        await this.renderWatchlistStock(symbol, true);
         this.updateWatchlistAddButtons();
+        this.analyzeWatchlistWithAI();
     }
 
     removeFromWatchlist(symbol) {
@@ -4256,8 +4310,18 @@ class StockDashboard {
     async renderAllWatchlistStocks() {
         const grid = document.getElementById('watchlistGrid');
         grid.innerHTML = '';
-        const renderPromises = this.watchlist.map(symbol => this.renderWatchlistStock(symbol));
         this.updateWatchlistEmptyState();
+
+        if (this.watchlist.length > 0) {
+            // Only batch-fetch symbols not already in cache from the tracking tab
+            const missing = this.watchlist.filter(sym =>
+                !stockAPI.getFromCache(`/api/stock/${sym}?range=1mo&interval=1d`) ||
+                !stockAPI.getFromCache(`/api/stock/${sym}?range=4y&interval=1wk`)
+            );
+            if (missing.length > 0) await stockAPI.prefetchStockData(missing);
+        }
+
+        const renderPromises = this.watchlist.map(symbol => this.renderWatchlistStock(symbol));
         await Promise.all(renderPromises);
         this.analyzeWatchlistWithAI();
     }
@@ -4299,7 +4363,7 @@ class StockDashboard {
                         <canvas id="chart-watchlist-${symbol}"></canvas>
                     </div>
                 </div>
-                <div class="ai-section hidden"></div>
+                <div class="ai-section"></div>
             </div>
             <div class="ai-description hidden"></div>
         `;
@@ -4833,7 +4897,7 @@ class StockDashboard {
         secondaryMetrics.innerHTML = `
             <span class="price-value">${data.currentPrice}</span>
             <span class="weekly-change ${data.isWeeklyPositive ? 'positive' : 'negative'}">${weeklyArrow} ${data.weeklyChangePercent}% (7d)</span>
-            <span class="weekly-change ${data.isMonthlyPositive ? 'positive' : 'negative'}">${monthlyArrow} ${data.monthlyChangePercent}% (28d)</span>
+            ${context === 'watchlist' ? `<span class="weekly-change ${data.isMonthlyPositive ? 'positive' : 'negative'}">${monthlyArrow} ${data.monthlyChangePercent}% (28d)</span>` : ''}
         `;
 
 
@@ -4917,12 +4981,22 @@ class StockDashboard {
         const aiSection = card.querySelector('.ai-section');
         if (aiSection) {
             aiSection.classList.remove('hidden');
-            aiSection.innerHTML = '<div class="ai-loading">Analyzing...</div>';
+            aiSection.innerHTML = `
+                <div class="fund-in-ai"></div>
+                <div class="ai-skeleton-block">
+                    <div class="ai-sk-verdict"></div>
+                    <div class="ai-sk-bar"></div>
+                    <div class="ai-sk-bar short"></div>
+                    <div class="ai-sk-bar"></div>
+                    <div class="ai-sk-bar short"></div>
+                </div>`;
+            const cachedFund = stockAPI.getFundamentalsFromCache(symbol);
+            if (cachedFund) this._fillFundInAI(card, cachedFund);
         }
         const aiDesc = card.querySelector('.ai-description');
         if (aiDesc) {
             aiDesc.classList.remove('hidden');
-            aiDesc.innerHTML = '<div class="ai-desc-loading">AI analysis loading...</div>';
+            aiDesc.innerHTML = '<div class="ai-desc-skeleton"><span></span><span></span><span></span><span></span><span></span></div>';
         }
         const csRatings = card.querySelector('.cs-ratings');
         if (csRatings) {
@@ -5009,13 +5083,30 @@ class StockDashboard {
             if (!card) return;
             const aiSection = card.querySelector('.ai-section');
             if (aiSection) {
+                const wasHiddenSkel = aiSection.classList.contains('hidden');
                 aiSection.classList.remove('hidden');
-                aiSection.innerHTML = '<div class="ai-loading">Analyzing...</div>';
+                aiSection.innerHTML = `
+                    <div class="fund-in-ai"></div>
+                    <div class="ai-skeleton-block">
+                        <div class="ai-sk-verdict"></div>
+                        <div class="ai-sk-bar"></div>
+                        <div class="ai-sk-bar short"></div>
+                        <div class="ai-sk-bar"></div>
+                        <div class="ai-sk-bar short"></div>
+                    </div>`;
+                const cachedFund = stockAPI.getFundamentalsFromCache(symbol);
+                if (cachedFund) this._fillFundInAI(card, cachedFund);
+                if (wasHiddenSkel) {
+                    requestAnimationFrame(() => {
+                        const chart = this.charts.get(`wl-${symbol}`);
+                        if (chart) chart.resize();
+                    });
+                }
             }
             const aiDesc = card.querySelector('.ai-description');
             if (aiDesc) {
                 aiDesc.classList.remove('hidden');
-                aiDesc.innerHTML = '<div class="ai-desc-loading">AI analysis loading...</div>';
+                aiDesc.innerHTML = '<div class="ai-desc-skeleton"><span></span><span></span><span></span><span></span><span></span></div>';
             }
             const csRatings = card.querySelector('.cs-ratings');
             if (csRatings) {
@@ -5105,11 +5196,14 @@ class StockDashboard {
             </div>
         `;
 
-        // ai-section (right of graph, desktop only): fundamentals + verdict badge + rating pills + per-card refresh
+        // ai-section (right of graph, desktop only): fundamentals + verdict badge + rating pills
+        // Entire section is clickable to open the AI modal
+        const wasHidden = aiSection.classList.contains('hidden');
         aiSection.classList.remove('hidden');
         aiSection.innerHTML = `
             <div class="fund-in-ai"></div>
             <div class="ai-verdict-row">
+                <span class="ai-source-badge">AI</span>
                 <div class="ai-verdict ${verdict}">${label}</div>
                 <button class="ai-card-refresh-btn" title="Refresh analysis">↻</button>
             </div>
@@ -5119,6 +5213,20 @@ class StockDashboard {
             e.stopPropagation();
             this.refreshCardAnalysis(symbol);
         });
+        aiSection.onclick = (e) => {
+            if (!e.target.closest('.ai-card-refresh-btn')) this.openAIModal(symbol);
+        };
+        aiSection.style.cursor = 'pointer';
+
+        // If the ai-section was hidden before, the chart was sized to fill the full left column.
+        // Now that the right column is visible, force an immediate resize.
+        if (wasHidden) {
+            requestAnimationFrame(() => {
+                const chart = this.charts.get(`wl-${symbol}`);
+                if (chart) chart.resize();
+            });
+        }
+
         // Fill fundamentals placeholder immediately if already cached
         const cachedFund = stockAPI.getFundamentalsFromCache(symbol);
         if (cachedFund) this._fillFundInAI(card, cachedFund);
@@ -5142,29 +5250,24 @@ class StockDashboard {
             `;
         }
 
-        // ai-description (below card body): shown on both desktop and mobile
-        // Ratings visible on mobile (hidden on desktop via CSS — they're in ai-section there)
-        // Collapsed by default; toggle at bottom; refresh button in header
+        // ai-description (mobile only — desktop hides this via CSS, ai-section is used there)
+        // Shows verdict badge + rating pills as a compact clickable row
         const aiDesc = card.querySelector('.ai-description');
         if (aiDesc) {
             aiDesc.classList.remove('hidden');
             aiDesc.innerHTML = `
-                ${ratingsHTML}
-                <div class="ai-desc-content ai-desc-collapsed">
-                    ${analysis.rationale ? `<div class="ai-rationale">${analysis.rationale}</div>` : ''}
-                    <div class="ai-summary">${analysis.summary}</div>
-                    ${fullDetailsHTML}
-                </div>
-                <div class="ai-desc-footer">
-                    <button class="ai-desc-toggle">AI Analysis ▾</button>
+                <div class="ai-desc-trigger">
+                    <span class="ai-source-badge">AI</span>
+                    <div class="ai-verdict ${verdict}">${label}</div>
+                    <span class="ai-rating-item valuation-${analysis.valuation_rating || 'mid'}">${analysis.valuation_rating || '–'}</span>
+                    <span class="ai-rating-item fundamentals-${analysis.fundamentals_rating || 'mid'}">${analysis.fundamentals_rating || '–'}</span>
+                    <span class="ai-rating-item fit-${analysis.portfolio_fit_rating || 'mid'}">${analysis.portfolio_fit_rating || '–'}</span>
+                    <span class="ai-rating-item longterm-${analysis.long_term_rating || 'mid'}">${analysis.long_term_rating || '–'}</span>
                     <button class="ai-card-refresh-btn ai-desc-refresh" title="Refresh analysis">↻</button>
                 </div>
             `;
-            const toggle = aiDesc.querySelector('.ai-desc-toggle');
-            const content = aiDesc.querySelector('.ai-desc-content');
-            toggle.addEventListener('click', () => {
-                content.classList.toggle('ai-desc-collapsed');
-                toggle.textContent = content.classList.contains('ai-desc-collapsed') ? 'AI Analysis ▾' : 'AI Analysis ▴';
+            aiDesc.querySelector('.ai-desc-trigger').addEventListener('click', (e) => {
+                if (!e.target.closest('.ai-desc-refresh')) this.openAIModal(symbol);
             });
             aiDesc.querySelector('.ai-desc-refresh').addEventListener('click', (e) => {
                 e.stopPropagation();
@@ -5610,6 +5713,8 @@ class StockDashboard {
 
         // Store current symbol and set default range/interval
         this.currentModalSymbol = symbol;
+        this._activeModalType = 'candlestick';
+        this._activeModalSymbol = symbol;
         const defaultRange = '5y';
         const defaultInterval = this.getDefaultInterval(defaultRange);
         this.currentModalRange = defaultRange;
@@ -5720,6 +5825,8 @@ class StockDashboard {
         this.currentModalSymbol = null;
         this.currentModalRange = null;
         this.currentModalInterval = null;
+        this._activeModalType = null;
+        this._activeModalSymbol = null;
         chartContainer.classList.remove('loading', 'no-data');
 
         // Clear active buttons
@@ -5735,6 +5842,8 @@ class StockDashboard {
         const modalName = document.getElementById('fundamentalsModalName');
         const body = document.getElementById('fundamentalsModalBody');
 
+        this._activeModalType = 'fundamentals';
+        this._activeModalSymbol = symbol;
         modalSymbol.textContent = symbol;
         modalName.textContent = '';
         body.innerHTML = '<div class="fundamentals-loading">Loading...</div>';
@@ -5876,6 +5985,86 @@ class StockDashboard {
 
     closeFundamentalsModal() {
         document.getElementById('fundamentalsModal').classList.add('hidden');
+        this._activeModalType = null;
+        this._activeModalSymbol = null;
+    }
+
+    openAIModal(symbol) {
+        const analysis = this.getCachedStockAnalysis(symbol);
+        if (!analysis) return;
+        this._activeModalType = 'ai';
+        this._activeModalSymbol = symbol;
+
+        const verdict = analysis.verdict || 'hold';
+        const label = verdict.charAt(0).toUpperCase() + verdict.slice(1);
+
+        document.getElementById('aiModalSymbol').textContent = symbol;
+
+        const section = (title, ratingClass, ratingValue, text) => `
+            <div class="ai-modal-section">
+                <div class="ai-modal-section-header">
+                    <span class="ai-modal-section-title">${title}</span>
+                    <span class="ai-rating-item ${ratingClass} ai-modal-badge">${ratingValue || '–'}</span>
+                </div>
+                <p class="ai-modal-section-text">${text || ''}</p>
+            </div>
+        `;
+
+        document.getElementById('aiModalBody').innerHTML = `
+            <div class="ai-modal-top">
+                <div class="ai-verdict ${verdict} ai-modal-verdict">${label}</div>
+                ${analysis.rationale ? `<p class="ai-modal-rationale">${analysis.rationale}</p>` : ''}
+            </div>
+            ${analysis.summary ? `<p class="ai-modal-summary">${analysis.summary}</p>` : ''}
+            <div class="ai-modal-sections">
+                ${section('Valuation',    `valuation-${analysis.valuation_rating || 'mid'}`,      analysis.valuation_rating,      analysis.valuation)}
+                ${section('Fundamentals', `fundamentals-${analysis.fundamentals_rating || 'mid'}`, analysis.fundamentals_rating,   analysis.fundamentals)}
+                ${section('Portfolio Fit',`fit-${analysis.portfolio_fit_rating || 'mid'}`,         analysis.portfolio_fit_rating,  analysis.portfolio_fit)}
+                ${section('Long Term',    `longterm-${analysis.long_term_rating || 'mid'}`,        analysis.long_term_rating,      analysis.long_term)}
+            </div>
+        `;
+
+        document.getElementById('aiModalRefreshBtn').onclick = () => {
+            this.closeAIModal();
+            this.refreshCardAnalysis(symbol);
+        };
+
+        document.getElementById('aiModal').classList.remove('hidden');
+    }
+
+    closeAIModal() {
+        document.getElementById('aiModal').classList.add('hidden');
+        this._activeModalType = null;
+        this._activeModalSymbol = null;
+    }
+
+    _navigateModal(dir) {
+        // dir: +1 = next popup type, -1 = prev popup type (same stock)
+        const types = ['candlestick', 'ai', 'fundamentals'];
+        if (!this._activeModalType || !this._activeModalSymbol) return;
+
+        const idx = types.indexOf(this._activeModalType);
+        const nextType = types[(idx + dir + types.length) % types.length];
+        const symbol = this._activeModalSymbol;
+
+        // Close current modal silently
+        if (this._activeModalType === 'candlestick') {
+            document.getElementById('candlestickModal').classList.add('hidden');
+            if (this.candlestickChart) { this.candlestickChart.destroy(); this.candlestickChart = null; }
+            this.currentModalSymbol = null;
+            document.querySelectorAll('.period-btn,.interval-btn').forEach(b => b.classList.remove('active'));
+        } else if (this._activeModalType === 'fundamentals') {
+            document.getElementById('fundamentalsModal').classList.add('hidden');
+        } else if (this._activeModalType === 'ai') {
+            document.getElementById('aiModal').classList.add('hidden');
+        }
+
+        this._activeModalType = null;
+        this._activeModalSymbol = null;
+
+        if (nextType === 'candlestick') this.openCandlestickModal(symbol);
+        else if (nextType === 'fundamentals') this.openFundamentalsModal(symbol);
+        else if (nextType === 'ai') this.openAIModal(symbol);
     }
 
     renderCandlestickChart(data) {
