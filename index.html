@@ -99,12 +99,16 @@
             </div>
             <div class="controls watchlist-controls hidden">
                 <div class="add-stock-form">
-                    <input
-                        type="text"
-                        id="watchlistInput"
-                        placeholder="Add symbol to watchlist..."
-                        maxlength="30"
-                    >
+                    <div class="watchlist-input-wrap">
+                        <input
+                            type="text"
+                            id="watchlistInput"
+                            placeholder="Add symbol to watchlist..."
+                            maxlength="30"
+                            autocomplete="off"
+                        >
+                        <div id="watchlistDropdown" class="watchlist-dropdown hidden"></div>
+                    </div>
                     <button id="addWatchlistBtn">Add</button>
                 </div>
                 <div class="stock-action-btns watchlist-action-mobile">
@@ -209,6 +213,18 @@
                     </div>
                 </div>
             </div>
+        </div>
+    </div>
+
+    <!-- AI Analysis Modal -->
+    <div id="aiModal" class="modal hidden">
+        <div class="modal-content ai-modal-content">
+            <button id="aiModalCloseBtn" class="modal-close-btn">×</button>
+            <div class="ai-modal-header">
+                <h2 id="aiModalSymbol"></h2>
+                <button class="ai-modal-refresh-btn" id="aiModalRefreshBtn" title="Refresh analysis">↻</button>
+            </div>
+            <div id="aiModalBody" class="ai-modal-body"></div>
         </div>
     </div>
 

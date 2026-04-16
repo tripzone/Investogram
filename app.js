@@ -207,14 +207,14 @@ class StockDashboard {
                 this._watchlistRendered = true;
                 requestAnimationFrame(() => this.renderAllWatchlistStocks());
             } else {
-                // Cards may have been added while this tab was hidden (e.g. via the
-                // Tracking tab + button). Chart.js measures 0px inside display:none,
-                // so resize every watchlist chart now that the view is visible.
+                // Flush any charts deferred because the view was hidden.
+                // The rAF runs after the browser has laid out the now-visible view,
+                // so Chart.js reads the correct container dimensions.
                 requestAnimationFrame(() => {
-                    this.watchlist.forEach(symbol => {
-                        const chart = this.charts.get(`wl-${symbol}`);
-                        if (chart) chart.resize();
-                    });
+                    if (this._pendingWLCharts && this._pendingWLCharts.length) {
+                        const pending = this._pendingWLCharts.splice(0);
+                        pending.forEach(({ symbol, data }) => this.createChart(symbol, data, 'watchlist'));
+                    }
                 });
             }
         });
@@ -4198,10 +4198,66 @@ class StockDashboard {
     setupWatchlistControls() {
         const input = document.getElementById('watchlistInput');
         const addBtn = document.getElementById('addWatchlistBtn');
+        const dropdown = document.getElementById('watchlistDropdown');
 
-        addBtn.addEventListener('click', () => this.addToWatchlistFromInput());
+        const showDropdown = () => {
+            const tracking = this.stockList.filter(s => !this.watchlist.includes(s));
+            if (!tracking.length) return;
+            const query = input.value.trim().toUpperCase();
+            const filtered = query
+                ? tracking.filter(s => s.toUpperCase().includes(query))
+                : tracking;
+            if (!filtered.length) { dropdown.classList.add('hidden'); return; }
+            dropdown.innerHTML = filtered.map(s => `<div class="wl-drop-item" data-symbol="${s}">${s}</div>`).join('');
+            dropdown.classList.remove('hidden');
+        };
+
+        const hideDropdown = () => dropdown.classList.add('hidden');
+
+        input.addEventListener('focus', showDropdown);
+        input.addEventListener('input', showDropdown);
+        input.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape') hideDropdown();
+            if (e.key === 'ArrowDown') {
+                const first = dropdown.querySelector('.wl-drop-item');
+                if (first) { e.preventDefault(); first.focus(); }
+            }
+        });
+
+        dropdown.addEventListener('keydown', (e) => {
+            if (e.key === 'ArrowDown') {
+                e.preventDefault();
+                const next = document.activeElement.nextElementSibling;
+                if (next) next.focus();
+            } else if (e.key === 'ArrowUp') {
+                e.preventDefault();
+                const prev = document.activeElement.previousElementSibling;
+                if (prev) prev.focus(); else input.focus();
+            } else if (e.key === 'Enter') {
+                e.preventDefault();
+                document.activeElement.click();
+            } else if (e.key === 'Escape') {
+                hideDropdown();
+                input.focus();
+            }
+        });
+
+        dropdown.addEventListener('click', (e) => {
+            const item = e.target.closest('.wl-drop-item');
+            if (!item) return;
+            input.value = item.dataset.symbol;
+            hideDropdown();
+            this.addToWatchlistFromInput();
+        });
+
+        // Hide on outside click
+        document.addEventListener('click', (e) => {
+            if (!input.contains(e.target) && !dropdown.contains(e.target)) hideDropdown();
+        });
+
+        addBtn.addEventListener('click', () => { hideDropdown(); this.addToWatchlistFromInput(); });
         input.addEventListener('keypress', (e) => {
-            if (e.key === 'Enter') this.addToWatchlistFromInput();
+            if (e.key === 'Enter') { hideDropdown(); this.addToWatchlistFromInput(); }
         });
     }
 
@@ -4222,9 +4278,9 @@ class StockDashboard {
 
             await stockAPI.getStockData(symbol);
 
-            this.watchlist.push(symbol);
+            this.watchlist.unshift(symbol);
             this.saveWatchlist();
-            await this.renderWatchlistStock(symbol);
+            await this.renderWatchlistStock(symbol, true);
             this.updateWatchlistAddButtons();
             this.analyzeWatchlistWithAI();
 
@@ -5333,6 +5389,19 @@ class StockDashboard {
     }
 
     createChart(symbol, data, context = 'tracking') {
+        // If the watchlist view is hidden (e.g. user is on Tracking tab), Chart.js
+        // would measure 0px for the container. Defer creation until the tab is shown.
+        if (context === 'watchlist') {
+            const view = document.getElementById('watchlistView');
+            if (view && view.classList.contains('hidden')) {
+                this._pendingWLCharts = this._pendingWLCharts || [];
+                // Replace any existing pending entry for the same symbol
+                this._pendingWLCharts = this._pendingWLCharts.filter(p => p.symbol !== symbol);
+                this._pendingWLCharts.push({ symbol, data });
+                return;
+            }
+        }
+
         const chartKey = context === 'watchlist' ? `wl-${symbol}` : symbol;
         const canvasId = context === 'watchlist' ? `chart-watchlist-${symbol}` : `chart-${symbol}`;
         const canvas = document.getElementById(canvasId);

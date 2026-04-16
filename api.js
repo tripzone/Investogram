@@ -562,11 +562,39 @@ class StockAPI {
     // ── Fundamentals ───────────────────────────────────────────────────────────
 
     getFundamentalsFromCache(symbol) {
-        const entry = this.fundamentalsCache.get(symbol.toUpperCase());
+        const key = symbol.toUpperCase();
+
+        // In-memory check first
+        const entry = this.fundamentalsCache.get(key);
         if (entry && Date.now() - entry.timestamp < this.fundamentalsCacheTTL) {
             return entry.data;
         }
+
+        // localStorage fallback — 24-hour TTL (fundamentals are quarterly data)
+        try {
+            const stored = localStorage.getItem('fund_' + key);
+            if (stored) {
+                const { date, data } = JSON.parse(stored);
+                if (date === new Date().toISOString().slice(0, 10)) {
+                    // Warm in-memory cache
+                    this.fundamentalsCache.set(key, { data, timestamp: Date.now() });
+                    return data;
+                }
+            }
+        } catch (_) {}
+
         return null;
+    }
+
+    _setFundamentalsCache(symbol, data) {
+        const key = symbol.toUpperCase();
+        this.fundamentalsCache.set(key, { data, timestamp: Date.now() });
+        try {
+            localStorage.setItem('fund_' + key, JSON.stringify({
+                date: new Date().toISOString().slice(0, 10),
+                data
+            }));
+        } catch (_) { /* ignore quota errors */ }
     }
 
     async fetchFundamentals(symbols) {
@@ -580,7 +608,7 @@ class StockAPI {
                 if (resp.ok) {
                     const data = await resp.json();
                     for (const [sym, fund] of Object.entries(data)) {
-                        this.fundamentalsCache.set(sym.toUpperCase(), { data: fund, timestamp: Date.now() });
+                        this._setFundamentalsCache(sym, fund);
                     }
                 }
             } catch (e) {
