@@ -291,6 +291,54 @@ class StockAPI {
         }
     }
 
+    parseDailyMetrics(dailyRaw) {
+        const result = dailyRaw.chart.result[0];
+        const meta = result.meta;
+        const quote = result.indicators.quote[0];
+        const closes = quote.close.filter(p => p !== null);
+
+        const currentPrice = meta.regularMarketPrice;
+        const previousClose = closes[closes.length - 2];
+        const dayChange = currentPrice - previousClose;
+        const dayChangePercent = ((dayChange / previousClose) * 100).toFixed(2);
+
+        const weekAgoPrice = closes.slice(-7)[0];
+        const weeklyChange = currentPrice - weekAgoPrice;
+        const weeklyChangePercent = ((weeklyChange / weekAgoPrice) * 100).toFixed(2);
+
+        const monthAgoPrice = closes.slice(-28)[0];
+        const monthlyChange = currentPrice - monthAgoPrice;
+        const monthlyChangePercent = ((monthlyChange / monthAgoPrice) * 100).toFixed(2);
+
+        return {
+            symbol: meta.symbol || '',
+            currentPrice: currentPrice.toFixed(2),
+            dayChange: dayChange.toFixed(2),
+            dayChangePercent,
+            weeklyChange: weeklyChange.toFixed(2),
+            weeklyChangePercent,
+            monthlyChange: monthlyChange.toFixed(2),
+            monthlyChangePercent,
+            isPositive: dayChange >= 0,
+            isWeeklyPositive: weeklyChange >= 0,
+            isMonthlyPositive: monthlyChange >= 0,
+        };
+    }
+
+    parseWeeklyChart(weeklyRaw, currentPrice) {
+        const result = weeklyRaw.chart.result[0];
+        const quote = result.indicators.quote[0];
+        const weeklyCloses = quote.close.filter(p => p !== null);
+
+        const ma50Week = this.calculateMovingAverageArray(weeklyCloses, 50);
+        const ma50Current = this.calculateMovingAverage(weeklyCloses, 50);
+        const ma200Current = this.calculateMovingAverage(weeklyCloses, 200);
+        const vsMA50 = ((currentPrice - ma50Current) / ma50Current * 100).toFixed(2);
+        const vsMA200 = ((currentPrice - ma200Current) / ma200Current * 100).toFixed(2);
+
+        return { chartPrices: weeklyCloses, chartMA50: ma50Week, vsMA50, vsMA200 };
+    }
+
     calculateMovingAverage(prices, period) {
         if (prices.length < period) {
             period = prices.length;

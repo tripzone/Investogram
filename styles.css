@@ -17,11 +17,73 @@ body {
 
 header {
     background: #1a1a1a;
-    padding: 10px 20px;
     border-bottom: 1px solid #2a2a2a;
+    display: flex;
+    flex-direction: column;
+    position: sticky;
+    top: 0;
+    z-index: 100;
+}
+
+.header-top {
     display: flex;
     align-items: center;
     gap: 20px;
+    padding: 10px 20px;
+}
+
+.collapse-toggle-bar {
+    width: 100%;
+    background: transparent;
+    border: none;
+    border-top: 1px solid #222;
+    color: #444;
+    padding: 4px 0;
+    font-size: 10px;
+    line-height: 1;
+    cursor: pointer;
+    transition: background 0.15s, color 0.15s;
+    display: block;
+}
+
+.collapse-toggle-bar:hover {
+    background: #222;
+    color: #777;
+}
+
+.collapse-toggle-bar.hidden {
+    display: none;
+}
+
+.watchlist-toggle-bar {
+    display: flex;
+    width: 100%;
+    border-top: 1px solid #222;
+}
+
+.watchlist-toggle-bar.hidden {
+    display: none;
+}
+
+.wl-toggle-btn {
+    flex: 1;
+    background: transparent;
+    border: none;
+    color: #444;
+    padding: 4px 0;
+    font-size: 10px;
+    line-height: 1;
+    cursor: pointer;
+    transition: background 0.15s, color 0.15s;
+}
+
+.wl-toggle-btn:first-child {
+    border-right: 1px solid #222;
+}
+
+.wl-toggle-btn:hover {
+    background: #222;
+    color: #777;
 }
 
 .header-center {
@@ -793,6 +855,8 @@ h1 {
 }
 
 .graph-card-header h3 {
+    display: flex;
+    align-items: center;
     font-size: 14px;
     font-weight: 600;
     color: #aaa;
@@ -804,6 +868,40 @@ h1 {
     display: flex;
     gap: 4px;
     margin: 0 12px;
+}
+
+.mode-selector {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    margin-left: 10px;
+    vertical-align: middle;
+}
+
+.mode-btn {
+    background: transparent;
+    border: 1px solid #444;
+    color: #888;
+    border-radius: 4px;
+    padding: 4px 10px;
+    font-size: 11px;
+    font-weight: 600;
+    cursor: pointer;
+    letter-spacing: 0.5px;
+    text-transform: uppercase;
+    transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+
+.mode-btn:hover {
+    background: #2a2a2a;
+    color: #aaa;
+    border-color: #555;
+}
+
+.mode-btn.active {
+    background: #38a169;
+    color: #fff;
+    border-color: #38a169;
 }
 
 .timeframe-btn {
@@ -889,6 +987,70 @@ h1 {
 .remove-graph-btn:hover {
     color: #fc8181;
     background: transparent;
+}
+
+.graph-info-tooltip {
+    position: relative;
+    display: flex;
+    align-items: center;
+    margin-left: 2px;
+}
+
+.graph-info-icon {
+    color: #666;
+    font-size: 14px;
+    cursor: default;
+    line-height: 1;
+    user-select: none;
+    transition: color 0.2s;
+}
+
+.graph-info-tooltip:hover .graph-info-icon {
+    color: #aaa;
+}
+
+.graph-info-popover {
+    display: none;
+    position: absolute;
+    top: calc(100% + 8px);
+    left: 50%;
+    transform: translateX(-50%);
+    width: 320px;
+    background: #2a2a2a;
+    border: 1px solid #555;
+    border-radius: 8px;
+    padding: 14px 16px;
+    color: #ccc;
+    font-size: 12px;
+    line-height: 1.6;
+    z-index: 1000;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+    pointer-events: none;
+}
+
+.graph-info-popover strong {
+    display: block;
+    color: #ddd;
+    font-size: 13px;
+    margin-bottom: 8px;
+}
+
+.graph-info-popover p {
+    margin: 0 0 7px 0;
+}
+
+.graph-info-popover p:last-child {
+    margin-bottom: 0;
+}
+
+.graph-info-popover em {
+    color: #888;
+    font-style: normal;
+    font-weight: 600;
+}
+
+.graph-info-tooltip:hover .graph-info-popover {
+    display: block;
 }
 
 .graph-card-body {
@@ -1104,8 +1266,8 @@ button:active {
     background: #2a2a2a;
 }
 
-.stock-card.loading {
-    opacity: 0.5;
+.stock-card.loading .primary-metric::after {
+    display: none;
 }
 
 .stock-card.dragging {
@@ -1153,8 +1315,9 @@ button:active {
 .cs-metrics {
     display: flex;
     align-items: center;
-    gap: 10px;
+    gap: 6px;
     flex: 1;
+    min-width: 0;
 }
 
 .cs-change {
@@ -1167,16 +1330,19 @@ button:active {
     display: flex;
     flex-direction: column;
     gap: 2px;
+    min-width: 0;
 }
 
 .cs-7d {
-    font-size: 11px;
+    font-size: 10px;
     line-height: 1;
+    white-space: nowrap;
 }
 
 .cs-28d {
-    font-size: 11px;
+    font-size: 10px;
     line-height: 1;
+    white-space: nowrap;
 }
 
 .cs-change.positive { color: #48bb78; }
@@ -1188,8 +1354,9 @@ button:active {
     display: flex;
     flex-direction: column;
     gap: 2px;
-    padding-left: 10px;
+    padding-left: 6px;
     border-left: 1px solid #444;
+    flex-shrink: 0;
 }
 
 .cs-pe-trailing,
@@ -1546,6 +1713,7 @@ button:active {
     min-width: 0;
     font-weight: 600;
     font-size: 11px;
+    white-space: nowrap;
 }
 
 .ma-comparison.ma-50.above {
@@ -2052,11 +2220,34 @@ button:active {
     padding: 4px 0;
 }
 
-/* Skeleton pulse — subtle, slow, used for all AI loading states */
+/* Skeleton pulse — used for AI loading states and card loading skeletons */
 @keyframes sk-pulse {
     0%, 100% { opacity: 0.45; }
     50%       { opacity: 0.7; }
 }
+
+/* Card skeleton bars */
+.sk-bar {
+    display: inline-block;
+    background: #2a2a2a;
+    border-radius: 3px;
+    animation: sk-pulse 1.8s ease-in-out infinite;
+}
+.sk-primary { width: 72px; height: 26px; vertical-align: middle; }
+.sk-price   { width: 52px; height: 13px; vertical-align: middle; }
+.sk-change  { width: 88px; height: 13px; vertical-align: middle; }
+.sk-pe      { width: 28px; height: 13px; vertical-align: middle; }
+.sk-ma      { width: 90px; height: 13px; vertical-align: middle; }
+
+.chart-skeleton {
+    width: 100%;
+    height: 100%;
+    background: #1e1e1e;
+    border-radius: 3px;
+    animation: sk-pulse 1.8s ease-in-out infinite;
+}
+.chart-container.chart-loading canvas { display: none; }
+.chart-container:not(.chart-loading) .chart-skeleton { display: none; }
 
 .ai-source-badge {
     font-size: 9px;
@@ -2263,7 +2454,7 @@ button:active {
 /* Responsive Design */
 @media (max-width: 768px) {
     /* Header: 2-row layout */
-    header {
+    .header-top {
         flex-wrap: wrap;
         padding: 8px 12px;
         gap: 6px;
@@ -2797,6 +2988,125 @@ button:active {
 
     .fundamentals-modal-body {
         grid-template-columns: 1fr;
+    }
+}
+
+/* Tracking Overview Modal */
+.tracking-overview-modal-content {
+    max-width: 680px;
+    padding: 28px 32px 24px 32px;
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+}
+
+.tracking-overview-modal-content h2 {
+    font-size: 16px;
+    font-weight: 600;
+    color: #e2e8f0;
+    margin: 0 0 20px 0;
+    padding-right: 32px;
+}
+
+.tracking-overview-modal-content .modal-close-btn {
+    display: flex;
+}
+
+.tracking-overview-body {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+}
+
+.tov-metrics {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 8px;
+}
+
+.tov-metric-primary,
+.tov-metric-secondary {
+    background: #242424;
+    border: 1px solid #2a2a2a;
+    border-radius: 6px;
+    padding: 12px 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    font-weight: 600;
+    font-size: 15px;
+    font-variant-numeric: tabular-nums;
+}
+
+.tov-metric-primary {
+    font-size: 22px;
+    font-weight: 700;
+}
+
+.tov-metric-primary.positive,
+.tov-metric-secondary.positive { color: #48bb78; }
+.tov-metric-primary.negative,
+.tov-metric-secondary.negative { color: #f56565; }
+
+.tov-metric-secondary { color: #cbd5e0; }
+
+.tov-metric-label {
+    font-size: 10px;
+    font-weight: 500;
+    color: #4a5568;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+}
+
+.tov-chart-container {
+    height: 220px;
+    background: #111;
+    border-radius: 6px;
+    overflow: hidden;
+    padding: 8px;
+}
+
+.tov-ma-row {
+    display: flex;
+    gap: 12px;
+}
+
+.tov-ma {
+    flex: 1;
+    background: #242424;
+    border: 1px solid #2a2a2a;
+    border-radius: 6px;
+    padding: 12px 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    font-size: 16px;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+}
+
+.tov-ma.above { color: #48bb78; }
+.tov-ma.below { color: #f56565; }
+
+.tov-ma-label {
+    font-size: 10px;
+    font-weight: 500;
+    color: #4a5568;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+}
+
+@media (max-width: 600px) {
+    .tov-metrics {
+        grid-template-columns: repeat(2, 1fr);
+    }
+
+    .tov-metric-primary {
+        font-size: 18px;
+    }
+
+    .tov-chart-container {
+        height: 160px;
     }
 }
 

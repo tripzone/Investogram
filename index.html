@@ -18,6 +18,7 @@
 <body>
     <div class="container">
         <header>
+            <div class="header-top">
             <div class="header-left">
                 <div class="tabs">
                     <button id="stocksTab" class="tab-btn active">Tracking</button>
@@ -47,8 +48,6 @@
                 </div>
                 <!-- Desktop: action buttons sit right of tabs -->
                 <div class="stock-action-btns stock-action-desktop" id="trackingActionBtns">
-                    <button onclick="dashboard.collapseAllCards()" title="Collapse all cards">▲</button>
-                    <button onclick="dashboard.expandAllCards()" title="Expand all cards">▼</button>
                     <button onclick="dashboard.refreshAllStocks()" title="Refresh">
                         <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                             <polyline points="23 4 23 10 17 10"/>
@@ -57,8 +56,6 @@
                     </button>
                 </div>
                 <div class="stock-action-btns stock-action-desktop hidden" id="watchlistActionBtns">
-                    <button onclick="dashboard.collapseAllWatchlist()" title="Collapse all cards">▲</button>
-                    <button onclick="dashboard.expandAllWatchlist()" title="Expand all cards">▼</button>
                     <button class="watchlist-refresh-btn" onclick="dashboard.refreshAllWatchlist()" title="Refresh all">
                         <svg class="watchlist-refresh-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                             <polyline points="23 4 23 10 17 10"/>
@@ -87,8 +84,6 @@
                 </div>
                 <!-- Mobile: action buttons sit beside add form on row 2 -->
                 <div class="stock-action-btns stock-action-mobile">
-                    <button onclick="dashboard.collapseAllCards()" title="Collapse all cards">▲</button>
-                    <button onclick="dashboard.expandAllCards()" title="Expand all cards">▼</button>
                     <button onclick="dashboard.refreshAllStocks()" title="Refresh">
                         <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                             <polyline points="23 4 23 10 17 10"/>
@@ -112,8 +107,6 @@
                     <button id="addWatchlistBtn">Add</button>
                 </div>
                 <div class="stock-action-btns watchlist-action-mobile">
-                    <button onclick="dashboard.collapseAllWatchlist()" title="Collapse all cards">▲</button>
-                    <button onclick="dashboard.expandAllWatchlist()" title="Expand all cards">▼</button>
                     <button class="watchlist-refresh-btn" onclick="dashboard.refreshAllWatchlist()" title="Refresh all">
                         <svg class="watchlist-refresh-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                             <polyline points="23 4 23 10 17 10"/>
@@ -160,6 +153,12 @@
                     </div>
                     <button id="addGraphBtn" disabled>Add</button>
                 </div>
+            </div>
+            </div><!-- .header-top -->
+            <button id="collapseToggleBar" class="collapse-toggle-bar" onclick="dashboard.toggleCollapseAll()">▲</button>
+            <div id="watchlistToggleBar" class="watchlist-toggle-bar hidden">
+                <button class="wl-toggle-btn" onclick="dashboard.collapseAllWatchlist()">▲</button>
+                <button class="wl-toggle-btn" onclick="dashboard.expandAllWatchlist()">▼</button>
             </div>
         </header>
 
@@ -237,6 +236,15 @@
             <div id="fundamentalsModalBody" class="fundamentals-modal-body">
                 <div class="fundamentals-loading">Loading...</div>
             </div>
+        </div>
+    </div>
+
+    <!-- Tracking Overview Modal -->
+    <div id="trackingOverviewModal" class="modal hidden">
+        <div class="modal-content tracking-overview-modal-content">
+            <button id="trackingOverviewModalCloseBtn" class="modal-close-btn">×</button>
+            <h2 id="trackingOverviewSymbol"></h2>
+            <div id="trackingOverviewBody" class="tracking-overview-body"></div>
         </div>
     </div>
 
