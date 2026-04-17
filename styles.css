@@ -34,12 +34,12 @@ header {
 
 .collapse-toggle-bar {
     width: 100%;
-    background: transparent;
+    background: #1d1d1d;
     border: none;
     border-top: 1px solid #222;
     color: #444;
-    padding: 4px 0;
-    font-size: 10px;
+    padding: 8px 0;
+    font-size: 13px;
     line-height: 1;
     cursor: pointer;
     transition: background 0.15s, color 0.15s;
@@ -55,35 +55,27 @@ header {
     display: none;
 }
 
-.watchlist-toggle-bar {
-    display: flex;
-    width: 100%;
-    border-top: 1px solid #222;
-}
-
-.watchlist-toggle-bar.hidden {
-    display: none;
-}
-
-.wl-toggle-btn {
-    flex: 1;
+.wl-action-btn {
     background: transparent;
-    border: none;
-    color: #444;
-    padding: 4px 0;
-    font-size: 10px;
+    color: #555;
+    border: 1px solid #2a2a2a;
+    border-radius: 3px;
+    width: 26px;
+    height: 22px;
+    padding: 0;
+    font-size: 11px;
     line-height: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
     cursor: pointer;
-    transition: background 0.15s, color 0.15s;
+    transition: all 0.2s;
 }
 
-.wl-toggle-btn:first-child {
-    border-right: 1px solid #222;
-}
-
-.wl-toggle-btn:hover {
-    background: #222;
-    color: #777;
+.wl-action-btn:hover {
+    background: #242424;
+    color: #888;
+    border-color: #333;
 }
 
 .header-center {
@@ -1805,9 +1797,9 @@ button:active {
     width: 100%;
     padding: 24px 28px 24px;
     overflow: hidden;
+    height: 68vh;
     display: flex;
     flex-direction: column;
-    max-height: 88vh;
 }
 
 .ai-modal-content .modal-close-btn {
@@ -2644,7 +2636,7 @@ button:active {
     border-radius: 8px;
     max-width: 1200px;
     width: 100%;
-    max-height: 88vh;
+    height: 68vh;
     display: flex;
     flex-direction: column;
     position: relative;
@@ -2708,7 +2700,7 @@ button:active {
 
 #candlestickChartContainer {
     flex: 1;
-    min-height: 550px;
+    min-height: 300px;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -2717,7 +2709,7 @@ button:active {
 
 #candlestickChart {
     width: 100% !important;
-    height: 550px !important;
+    height: 380px !important;
 }
 
 #candlestickChartContainer.loading::after {
@@ -2893,7 +2885,7 @@ button:active {
     overflow: hidden;
     display: flex;
     flex-direction: column;
-    max-height: 88vh;
+    height: 68vh;
 }
 
 .fundamentals-modal-content h2 {
@@ -2998,6 +2990,8 @@ button:active {
     display: flex;
     flex-direction: column;
     gap: 0;
+    height: 68vh;
+    overflow: hidden;
 }
 
 .tracking-overview-modal-content h2 {
@@ -3016,6 +3010,8 @@ button:active {
     display: flex;
     flex-direction: column;
     gap: 16px;
+    overflow-y: auto;
+    flex: 1;
 }
 
 .tov-metrics {
