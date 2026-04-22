@@ -1,4 +1,4 @@
-const CACHE = 'investogram-v2';
+const CACHE = 'investogram-v3';
 const STATIC = [
   '/',
   '/styles.css',

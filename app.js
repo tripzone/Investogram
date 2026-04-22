@@ -157,6 +157,12 @@ class StockDashboard {
             if (watchlistMobile) watchlistMobile.classList.remove('hidden');
         };
 
+        // Wire up collapse toggle bar via addEventListener — more reliable on mobile than inline onclick
+        const collapseBar = document.getElementById('collapseToggleBar');
+        if (collapseBar) {
+            collapseBar.addEventListener('click', () => this.toggleCollapseAll());
+        }
+
         stocksTab.addEventListener('click', () => {
             stocksTab.classList.add('active');
             watchlistTab.classList.remove('active');
@@ -6062,13 +6068,16 @@ class StockDashboard {
     }
 
     toggleCollapseAll() {
-        const bar = document.getElementById('collapseToggleBar');
-        const allCollapsed = bar?.textContent === '▼';
         const activeTab = document.querySelector('.tab-btn.active')?.id;
         if (activeTab === 'stocksTab') {
+            const stocks = this.stockList.filter(e => !this.parseStockEntry(e).isDivider);
+            const collapsed = this.getCollapsedStocks();
+            const allCollapsed = stocks.length > 0 && stocks.every(e => collapsed.includes(this.parseStockEntry(e).symbol));
             if (allCollapsed) this.expandAllCards();
             else this.collapseAllCards();
         } else if (activeTab === 'watchlistTab') {
+            const cards = document.querySelectorAll('.watchlist-card');
+            const allCollapsed = cards.length > 0 && [...cards].every(c => c.classList.contains('collapsed'));
             if (allCollapsed) this.expandAllWatchlist();
             else this.collapseAllWatchlist();
         }

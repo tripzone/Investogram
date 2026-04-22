@@ -444,7 +444,14 @@ def analyze_stocks():
                 tools=[types.Tool(google_search=types.GoogleSearch())]
             )
         )
-        text = response.text.strip()
+        try:
+            text = response.text
+        except Exception:
+            text = None
+        if not text:
+            print(f"[AI] Empty or blocked response from Gemini: finish_reason={getattr(response.candidates[0] if response.candidates else None, 'finish_reason', 'unknown')}")
+            return jsonify({'error': 'Empty response from AI model'}), 500
+        text = text.strip()
         # Strip markdown code fences if present
         if text.startswith('```'):
             text = text.split('\n', 1)[1]
@@ -458,8 +465,10 @@ def analyze_stocks():
         result = json.loads(text)
         return jsonify(result)
     except json.JSONDecodeError as e:
+        print(f"[AI] JSON parse error: {e}\nText was: {text[:500] if 'text' in dir() else 'unknown'}")
         return jsonify({'error': f'Failed to parse AI response: {e}'}), 500
     except Exception as e:
+        print(f"[AI] Unexpected error in analyze_stocks: {type(e).__name__}: {e}")
         return jsonify({'error': str(e)}), 500
 
 

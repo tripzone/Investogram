@@ -44,6 +44,8 @@ header {
     cursor: pointer;
     transition: background 0.15s, color 0.15s;
     display: block;
+    touch-action: manipulation;
+    -webkit-tap-highlight-color: transparent;
 }
 
 .collapse-toggle-bar:hover {
