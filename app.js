@@ -6284,9 +6284,11 @@ class StockDashboard {
             if (!response.ok) throw new Error(`HTTP ${response.status}`);
             const analysis = await response.json();
             if (analysis.error) throw new Error(analysis.error);
-            if (analysis[symbol]) {
-                this.setCachedStockAnalysis(symbol, analysis[symbol]);
-                this.updateCardWithAI(symbol, analysis[symbol]);
+            const symbolData = analysis[symbol] ??
+                Object.entries(analysis).find(([k]) => k.toUpperCase() === symbol.toUpperCase())?.[1];
+            if (symbolData) {
+                this.setCachedStockAnalysis(symbol, symbolData);
+                this.updateCardWithAI(symbol, symbolData);
             }
         } catch (err) {
             console.error(`Refresh failed for ${symbol}:`, err);
@@ -6394,9 +6396,11 @@ class StockDashboard {
                 if (!response.ok) throw new Error(`HTTP ${response.status}`);
                 const analysis = await response.json();
                 if (analysis.error) throw new Error(analysis.error);
-                if (analysis[symbol]) {
-                    this.setCachedStockAnalysis(symbol, analysis[symbol]);
-                    this.updateCardWithAI(symbol, analysis[symbol]);
+                const symbolData = analysis[symbol] ??
+                    Object.entries(analysis).find(([k]) => k.toUpperCase() === symbol.toUpperCase())?.[1];
+                if (symbolData) {
+                    this.setCachedStockAnalysis(symbol, symbolData);
+                    this.updateCardWithAI(symbol, symbolData);
                 }
                 completed++;
             } catch (err) {

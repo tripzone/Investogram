@@ -449,6 +449,12 @@ def analyze_stocks():
         if text.startswith('```'):
             text = text.split('\n', 1)[1]
             text = text.rsplit('```', 1)[0].strip()
+        # Extract the outermost JSON object — Google Search grounding can add
+        # surrounding prose even when the prompt says "return ONLY valid JSON"
+        start = text.find('{')
+        end = text.rfind('}')
+        if start != -1 and end != -1 and start < end:
+            text = text[start:end + 1]
         result = json.loads(text)
         return jsonify(result)
     except json.JSONDecodeError as e:
