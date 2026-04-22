@@ -8,7 +8,7 @@ import json
 import time
 import requests
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from flask import Flask, request, jsonify, send_from_directory
+from flask import Flask, request, jsonify, send_from_directory, Response, stream_with_context
 
 app = Flask(__name__, static_folder='.')
 PORT = int(os.environ.get('PORT', 8080))
@@ -137,6 +137,45 @@ def stocks_batch():
     return jsonify(results)
 
 
+@app.route('/api/stocks/stream')
+def stocks_stream():
+    symbols_param = request.args.get('symbols', '')
+    range_param = request.args.get('range', '1mo')
+    interval_param = request.args.get('interval', '1d')
+
+    symbols = [s.strip().upper() for s in symbols_param.split(',') if s.strip()]
+    if not symbols:
+        return jsonify({'error': 'No symbols provided'}), 400
+
+    @stream_with_context
+    def generate():
+        to_fetch = []
+        for symbol in symbols:
+            cached = _cache_get(symbol, range_param, interval_param)
+            if cached is not None:
+                yield f"data: {json.dumps({'symbol': symbol, 'data': cached})}\n\n"
+            else:
+                to_fetch.append(symbol)
+
+        if to_fetch:
+            def fetch_one(sym):
+                try:
+                    return sym, _fetch_from_yahoo(sym, range_param, interval_param)
+                except Exception as e:
+                    return sym, {'error': str(e)}
+
+            with ThreadPoolExecutor(max_workers=min(len(to_fetch), 10)) as executor:
+                futures = {executor.submit(fetch_one, sym): sym for sym in to_fetch}
+                for future in as_completed(futures):
+                    sym, data = future.result()
+                    yield f"data: {json.dumps({'symbol': sym, 'data': data})}\n\n"
+
+        yield 'data: {"done":true}\n\n'
+
+    return Response(generate(), mimetype='text/event-stream',
+                    headers={'Cache-Control': 'no-cache', 'X-Accel-Buffering': 'no'})
+
+
 # ── Fundamentals cache ────────────────────────────────────────────────────────
 # TTL is 1 hour — fundamentals are quarterly data, no need to refresh more often.
 _fundamentals_cache = {}  # key: symbol, value: (fetched_at, data)
@@ -145,7 +184,7 @@ _FUNDAMENTALS_TTL = 60 * 60  # 1 hour
 # Semaphore: limit concurrent yfinance calls to avoid Yahoo rate limiting.
 # yfinance handles the crumb but Yahoo blocks rapid parallel requests.
 import threading
-_yf_semaphore = threading.Semaphore(1)
+_yf_semaphore = threading.Semaphore(4)
 
 
 def _fundamentals_cache_get(symbol):
@@ -163,7 +202,6 @@ def _fetch_fundamentals_yf(symbol):
     """Fetch fundamentals for one symbol via yfinance (handles Yahoo crumb automatically)."""
     import yfinance as yf
     with _yf_semaphore:
-        time.sleep(0.3)  # brief pause to avoid hitting Yahoo rate limits
         info = yf.Ticker(symbol).info
     return {
         'trailingPE': info.get('trailingPE'),

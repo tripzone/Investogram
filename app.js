@@ -24,6 +24,7 @@ class StockDashboard {
         this.stockDataMap = {}; // symbol -> last known stock data, used for AI analysis
         this.trackingDataMap = {}; // symbol -> last known stock data for tracking tab
         this.resizing = null; // Track active resize operation
+        this._renderToken = 0; // incremented each renderAllStocks call; stale stream callbacks check this
         this.latestPrices = null; // Map<symbol, { currentPrice, currency }>
         this.latestPricesState = 'idle'; // 'idle' | 'loading' | 'active' | 'error'
         this.useCurrentPrices = true; // clock toggle: true = use market prices, false = use acquisition cost
@@ -4990,22 +4991,76 @@ class StockDashboard {
             }
         });
 
-        // Swipe to navigate between watchlist stocks in any modal
+        // Swipe to navigate between modal cards with TikTok-style slide animation
         const _swipeState = {};
         ['candlestickModal', 'aiModal', 'fundamentalsModal', 'trackingOverviewModal'].forEach(id => {
             const el = document.getElementById(id);
+
             el.addEventListener('touchstart', (e) => {
-                _swipeState.x = e.touches[0].clientX;
-                _swipeState.y = e.touches[0].clientY;
+                _swipeState.startX = e.touches[0].clientX;
+                _swipeState.startY = e.touches[0].clientY;
+                _swipeState.dragging = false;
+                _swipeState.locked = false;
+                _swipeState.modalId = id;
             }, { passive: true });
+
+            el.addEventListener('touchmove', (e) => {
+                if (_swipeState.startX == null || _swipeState.locked) return;
+                const dx = e.touches[0].clientX - _swipeState.startX;
+                const dy = e.touches[0].clientY - _swipeState.startY;
+
+                if (!_swipeState.dragging) {
+                    if (Math.abs(dx) < 6 && Math.abs(dy) < 6) return;
+                    if (Math.abs(dy) >= Math.abs(dx)) { _swipeState.locked = true; return; }
+                    _swipeState.dragging = true;
+                }
+
+                e.preventDefault();
+                const content = el.querySelector('.modal-content');
+                if (content) {
+                    content.style.transition = 'none';
+                    content.style.transform = `translateX(${dx}px)`;
+                }
+            }, { passive: false });
+
             el.addEventListener('touchend', (e) => {
-                if (_swipeState.x == null) return;
-                const dx = e.changedTouches[0].clientX - _swipeState.x;
-                const dy = e.changedTouches[0].clientY - _swipeState.y;
-                _swipeState.x = null;
-                // Only treat as horizontal swipe if it's more horizontal than vertical
-                if (Math.abs(dx) > 50 && Math.abs(dx) > Math.abs(dy) * 1.5) {
-                    this._navigateModal(dx < 0 ? 1 : -1);
+                if (_swipeState.startX == null) return;
+                const dx = e.changedTouches[0].clientX - _swipeState.startX;
+                const dy = e.changedTouches[0].clientY - _swipeState.startY;
+                const wasDragging = _swipeState.dragging;
+                _swipeState.startX = null;
+                _swipeState.dragging = false;
+                _swipeState.locked = false;
+
+                const content = el.querySelector('.modal-content');
+
+                const snapBack = () => {
+                    if (content) {
+                        content.style.transition = 'transform 0.25s cubic-bezier(0.25, 0.46, 0.45, 0.94)';
+                        content.style.transform = '';
+                        content.addEventListener('transitionend', () => { content.style.transition = ''; }, { once: true });
+                    }
+                };
+
+                if (!wasDragging || Math.abs(dx) < 60 || Math.abs(dx) <= Math.abs(dy) * 1.5) {
+                    snapBack();
+                    return;
+                }
+
+                const dir = dx < 0 ? 1 : -1;
+                const swipeDir = dx < 0 ? 'left' : 'right';
+                const exitX = dx < 0 ? '-110%' : '110%';
+
+                if (content) {
+                    content.style.transition = 'transform 0.25s cubic-bezier(0.25, 0.46, 0.45, 0.94)';
+                    content.style.transform = `translateX(${exitX})`;
+                    content.addEventListener('transitionend', () => {
+                        content.style.transition = '';
+                        content.style.transform = '';
+                        this._navigateModal(dir, swipeDir);
+                    }, { once: true });
+                } else {
+                    this._navigateModal(dir, swipeDir);
                 }
             }, { passive: true });
         });
@@ -5558,6 +5613,19 @@ class StockDashboard {
     }
 
     async renderAllStocks() {
+        const token = ++this._renderToken;
+
+        // If cards already exist in the DOM, use them as the source of truth for collapsed state.
+        // Firestore may have overwritten localStorage with stale data before this re-render,
+        // so the DOM (what the user actually sees) is more reliable than localStorage here.
+        const existingCards = document.querySelectorAll('#stockGrid .stock-card');
+        if (existingCards.length > 0) {
+            const domCollapsed = [...existingCards]
+                .filter(c => c.classList.contains('collapsed'))
+                .map(c => c.dataset.symbol).filter(Boolean);
+            this.saveCollapsedStocks(domCollapsed);
+        }
+
         const grid = document.getElementById('stockGrid');
         grid.innerHTML = '';
 
@@ -5582,38 +5650,17 @@ class StockDashboard {
 
         if (!symbols.length) return;
 
-        // Step 2: fetch daily data (fast) + fundamentals in parallel — pop metrics ASAP
-        const [dailyBatch, funds] = await Promise.all([
-            stockAPI.fetchBatch(symbols, '1mo', '1d'),
-            stockAPI.fetchFundamentals(symbols).catch(() => ({}))
-        ]);
+        // dailyDataMap: filled as each symbol's daily data streams in (needed by chart builder)
+        // pendingWeekly: weekly data that arrived before its daily counterpart
+        // fundsCache: filled when fundamentals batch resolves
+        const dailyDataMap = {};
+        const pendingWeekly = {};
+        const fundsCache = {};
 
-        for (const symbol of symbols) {
-            const raw = dailyBatch[symbol.toUpperCase()];
-            if (!raw?.chart?.result?.[0]) {
-                this.showCardError(symbol, 'No data available');
-                continue;
-            }
-            stockAPI.setCache(`/api/stock/${symbol}?range=1mo&interval=1d`, raw);
-            try {
-                const metrics = stockAPI.parseDailyMetrics(raw);
-                this.updateStockCardMetrics(symbol, metrics);
-            } catch (e) {
-                this.showCardError(symbol, e.message);
-                continue;
-            }
-            // updateStockCardMetrics must run first — it creates .tracking-pe-value
-            const fund = funds[symbol.toUpperCase()];
-            if (fund) this.updateTrackingCardPE(symbol, fund);
-        }
+        const isStale = () => this._renderToken !== token;
 
-        // Step 3: fetch weekly data (slower, 4 years) — fill in charts + MA
-        const weeklyBatch = await stockAPI.fetchBatch(symbols, '4y', '1wk');
-
-        for (const symbol of symbols) {
-            const dailyRaw = dailyBatch[symbol.toUpperCase()];
-            const weeklyRaw = weeklyBatch[symbol.toUpperCase()];
-            if (!dailyRaw?.chart?.result?.[0] || !weeklyRaw?.chart?.result?.[0]) continue;
+        const applyChart = (symbol, dailyRaw, weeklyRaw) => {
+            if (!weeklyRaw?.chart?.result?.[0]) return;
             stockAPI.setCache(`/api/stock/${symbol}?range=4y&interval=1wk`, weeklyRaw);
             try {
                 const metrics = stockAPI.parseDailyMetrics(dailyRaw);
@@ -5623,7 +5670,59 @@ class StockDashboard {
                 const card = document.getElementById(`stock-${symbol}`);
                 if (card) card.querySelector('.chart-container')?.classList.remove('chart-loading');
             }
-        }
+        };
+
+        // Fundamentals: fetch in parallel, apply to each card as soon as both
+        // fundamentals and that card's daily metrics are ready.
+        const fundsPromise = stockAPI.fetchFundamentals(symbols)
+            .catch(() => ({}))
+            .then(funds => {
+                if (isStale()) return;
+                Object.assign(fundsCache, funds);
+                for (const symbol of symbols) {
+                    const fund = funds[symbol.toUpperCase()];
+                    if (fund) this.updateTrackingCardPE(symbol, fund);
+                }
+            });
+
+        // Stream daily data — each card gets its price/metrics the moment Yahoo responds
+        const dailyPromise = stockAPI.streamBatch(symbols, '1mo', '1d', (symbol, raw) => {
+            if (isStale()) return;
+            if (!raw?.chart?.result?.[0]) {
+                this.showCardError(symbol, 'No data available');
+                return;
+            }
+            stockAPI.setCache(`/api/stock/${symbol}?range=1mo&interval=1d`, raw);
+            dailyDataMap[symbol] = raw;
+            try {
+                const metrics = stockAPI.parseDailyMetrics(raw);
+                this.updateStockCardMetrics(symbol, metrics);
+            } catch (e) {
+                this.showCardError(symbol, e.message);
+                return;
+            }
+            // Apply PE if fundamentals already resolved
+            const fund = fundsCache[symbol.toUpperCase()];
+            if (fund) this.updateTrackingCardPE(symbol, fund);
+            // Apply chart if weekly data already arrived
+            if (pendingWeekly[symbol]) {
+                applyChart(symbol, raw, pendingWeekly[symbol]);
+                delete pendingWeekly[symbol];
+            }
+        });
+
+        // Stream weekly data — each chart renders the moment its data arrives
+        const weeklyPromise = stockAPI.streamBatch(symbols, '4y', '1wk', (symbol, raw) => {
+            if (isStale()) return;
+            const dailyRaw = dailyDataMap[symbol];
+            if (!dailyRaw) {
+                pendingWeekly[symbol] = raw; // daily not yet here — buffer it
+                return;
+            }
+            applyChart(symbol, dailyRaw, raw);
+        });
+
+        await Promise.all([dailyPromise, weeklyPromise, fundsPromise]);
     }
 
     renderSkeletonCard(entry) {
@@ -7351,8 +7450,8 @@ class StockDashboard {
         this._activeModalContext = null;
     }
 
-    _navigateModal(dir) {
-        // dir: +1 = next popup type, -1 = prev popup type (same stock)
+    _navigateModal(dir, swipeDir = null) {
+        // dir: +1 = next, -1 = prev. swipeDir: 'left' | 'right' | null (from touch swipe)
         if (!this._activeModalType || !this._activeModalSymbol) return;
 
         const context = this._activeModalContext;
@@ -7363,6 +7462,13 @@ class StockDashboard {
         const idx = types.indexOf(this._activeModalType);
         const nextType = types[(idx + dir + types.length) % types.length];
         const symbol = this._activeModalSymbol;
+
+        const nextModalId = {
+            'candlestick': 'candlestickModal',
+            'fundamentals': 'fundamentalsModal',
+            'ai': 'aiModal',
+            'tracking-overview': 'trackingOverviewModal',
+        }[nextType];
 
         // Close current modal silently (preserve context for next open)
         if (this._activeModalType === 'candlestick') {
@@ -7394,6 +7500,26 @@ class StockDashboard {
         } else if (nextType === 'tracking-overview') {
             this._activeModalContext = context;
             this.openTrackingOverviewModal(symbol);
+        }
+
+        // Slide the incoming modal content in from the opposite edge
+        if (swipeDir && nextModalId) {
+            const startX = swipeDir === 'left' ? '110%' : '-110%';
+            const nextModal = document.getElementById(nextModalId);
+            const content = nextModal?.querySelector('.modal-content');
+            if (content) {
+                content.style.transition = 'none';
+                content.style.transform = `translateX(${startX})`;
+                requestAnimationFrame(() => {
+                    requestAnimationFrame(() => {
+                        content.style.transition = 'transform 0.28s cubic-bezier(0.25, 0.46, 0.45, 0.94)';
+                        content.style.transform = '';
+                        content.addEventListener('transitionend', () => {
+                            content.style.transition = '';
+                        }, { once: true });
+                    });
+                });
+            }
         }
     }
 
@@ -7744,6 +7870,12 @@ class StockDashboard {
                 }
             }
         });
+
+        // Dismiss tooltip on touchend — Chart.js has no mouseleave on mobile so it sticks
+        canvas.addEventListener('touchend', () => {
+            this.candlestickChart?.tooltip.setActiveElements([], { x: 0, y: 0 });
+            this.candlestickChart?.update('none');
+        }, { passive: true });
 
         // Manually sync legend state with saved visibility after chart creation
         // This ensures the legend strikethrough matches the actual visibility

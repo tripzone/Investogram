@@ -212,16 +212,30 @@ firebaseAuth.onAuthStateChanged(async (user) => {
         hideAuthOverlay();
         setSignedInState(user);
 
-        // Pull saved data then refresh the dashboard
+        // Snapshot before pull so we can skip re-renders when server data matches local.
+        const prevStockList = JSON.stringify(window.dashboard?.stockList);
+        const prevWatchlist  = JSON.stringify(window.dashboard?.watchlist);
+
         await pullFromServer();
+
         if (window.dashboard) {
-            window.dashboard.stockList = window.dashboard.loadStockList();
-            window.dashboard.watchlist = window.dashboard.loadWatchlist();
+            window.dashboard.stockList              = window.dashboard.loadStockList();
+            window.dashboard.watchlist              = window.dashboard.loadWatchlist();
             window.dashboard.updateAvailableGraphs();
-            window.dashboard.portfolioGraphs = window.dashboard.loadPortfolioGraphs();
+            window.dashboard.portfolioGraphs        = window.dashboard.loadPortfolioGraphs();
             window.dashboard.portfolioExcludedSymbols = window.dashboard.loadPortfolioExcludedSymbols();
-            window.dashboard.renderAllStocks();
-            window.dashboard.renderAllWatchlistStocks();
+
+            // Only re-render grids if the underlying data actually changed.
+            // Skipping an unnecessary re-render eliminates the flicker on normal page loads.
+            const newStockList = JSON.stringify(window.dashboard.stockList);
+            const newWatchlist = JSON.stringify(window.dashboard.watchlist);
+            if (newStockList !== prevStockList) {
+                window.dashboard.renderAllStocks();
+            }
+            if (newWatchlist !== prevWatchlist) {
+                window.dashboard.renderAllWatchlistStocks();
+            }
+
             window.dashboard.renderPortfolioGraphs();
             window.dashboard.updateDataIndicators();
         }

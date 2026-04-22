@@ -201,6 +201,30 @@ class StockAPI {
         return resp.json();
     }
 
+    // Stream batch results from the server, calling onSymbol(symbol, raw) as each arrives.
+    async streamBatch(symbols, range, interval, onSymbol) {
+        if (!symbols.length) return;
+        const url = `/api/stocks/stream?symbols=${symbols.join(',')}&range=${range}&interval=${interval}`;
+        const resp = await fetch(url);
+        if (!resp.ok) throw new Error(`Stream fetch failed: ${resp.status}`);
+        const reader = resp.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
+        while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            buffer += decoder.decode(value, { stream: true });
+            const lines = buffer.split('\n');
+            buffer = lines.pop();
+            for (const line of lines) {
+                if (!line.startsWith('data: ')) continue;
+                const payload = JSON.parse(line.slice(6));
+                if (payload.done) return;
+                onSymbol(payload.symbol, payload.data);
+            }
+        }
+    }
+
     // Warm the cache for all symbols (daily + weekly) with two parallel batch requests.
     // Call this before rendering cards so individual getStockData() calls hit the cache.
     async prefetchStockData(symbols) {
