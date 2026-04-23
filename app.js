@@ -245,6 +245,47 @@ class StockDashboard {
                 this.fetchLatestPrices();
             }
         });
+
+        // Swipe left/right on the main content area to switch tabs
+        const tabOrder = ['stocksTab', 'watchlistTab', 'portfolioTab'];
+        const tabSwipe = {};
+        const mainContainer = document.querySelector('.container');
+        if (mainContainer) {
+            mainContainer.addEventListener('touchstart', (e) => {
+                if (document.querySelector('.modal:not(.hidden)')) return;
+                tabSwipe.startX = e.touches[0].clientX;
+                tabSwipe.startY = e.touches[0].clientY;
+                tabSwipe.dragging = false;
+                tabSwipe.locked = false;
+            }, { passive: true });
+
+            mainContainer.addEventListener('touchmove', (e) => {
+                if (tabSwipe.startX == null || tabSwipe.locked) return;
+                if (document.querySelector('.modal:not(.hidden)')) { tabSwipe.startX = null; return; }
+                const dx = e.touches[0].clientX - tabSwipe.startX;
+                const dy = e.touches[0].clientY - tabSwipe.startY;
+                if (!tabSwipe.dragging) {
+                    if (Math.abs(dx) < 6 && Math.abs(dy) < 6) return;
+                    if (Math.abs(dy) >= Math.abs(dx)) { tabSwipe.locked = true; return; }
+                    tabSwipe.dragging = true;
+                }
+                e.preventDefault();
+            }, { passive: false });
+
+            mainContainer.addEventListener('touchend', (e) => {
+                if (tabSwipe.startX == null || !tabSwipe.dragging) { tabSwipe.startX = null; return; }
+                const dx = e.changedTouches[0].clientX - tabSwipe.startX;
+                const dy = e.changedTouches[0].clientY - tabSwipe.startY;
+                tabSwipe.startX = null;
+                tabSwipe.dragging = false;
+                tabSwipe.locked = false;
+                if (Math.abs(dx) < 40 || Math.abs(dx) <= Math.abs(dy) * 1.5) return;
+                const activeIdx = tabOrder.findIndex(id => document.getElementById(id)?.classList.contains('active'));
+                const nextIdx = dx < 0 ? activeIdx + 1 : activeIdx - 1;
+                if (nextIdx < 0 || nextIdx >= tabOrder.length) return;
+                document.getElementById(tabOrder[nextIdx])?.click();
+            }, { passive: true });
+        }
     }
 
     setupUploadModal() {
@@ -5042,13 +5083,13 @@ class StockDashboard {
 
                 const snapBack = () => {
                     if (content) {
-                        content.style.transition = 'transform 0.25s cubic-bezier(0.25, 0.46, 0.45, 0.94)';
+                        content.style.transition = 'transform 0.15s cubic-bezier(0.2, 0.8, 0.3, 1)';
                         content.style.transform = '';
                         content.addEventListener('transitionend', () => { content.style.transition = ''; }, { once: true });
                     }
                 };
 
-                if (!wasDragging || Math.abs(dx) < 60 || Math.abs(dx) <= Math.abs(dy) * 1.5) {
+                if (!wasDragging || Math.abs(dx) < 40 || Math.abs(dx) <= Math.abs(dy) * 1.5) {
                     snapBack();
                     return;
                 }
@@ -5058,7 +5099,7 @@ class StockDashboard {
                 const exitX = dx < 0 ? '-110%' : '110%';
 
                 if (content) {
-                    content.style.transition = 'transform 0.25s cubic-bezier(0.25, 0.46, 0.45, 0.94)';
+                    content.style.transition = 'transform 0.15s cubic-bezier(0.2, 0.8, 0.3, 1)';
                     content.style.transform = `translateX(${exitX})`;
                     content.addEventListener('transitionend', () => {
                         content.style.transition = '';
@@ -7525,7 +7566,7 @@ class StockDashboard {
                 content.style.transform = `translateX(${startX})`;
                 requestAnimationFrame(() => {
                     requestAnimationFrame(() => {
-                        content.style.transition = 'transform 0.28s cubic-bezier(0.25, 0.46, 0.45, 0.94)';
+                        content.style.transition = 'transform 0.18s cubic-bezier(0.2, 0.8, 0.3, 1)';
                         content.style.transform = '';
                         content.addEventListener('transitionend', () => {
                             content.style.transition = '';
