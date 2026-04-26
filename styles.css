@@ -829,11 +829,38 @@ h1 {
 
 .graph-card-header {
     display: flex;
-    justify-content: space-between;
     align-items: center;
+    gap: 8px;
     padding: 16px 20px;
     border-bottom: 1px solid #333;
     cursor: move;
+    flex-wrap: wrap;
+}
+
+.graph-header-title {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex: 1;
+    min-width: 0;
+}
+
+.graph-card-title {
+    font-size: 14px;
+    font-weight: 600;
+    color: #aaa;
+    flex: 1;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.graph-header-mode,
+.graph-header-timeframe {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    flex-shrink: 0;
 }
 
 .graph-drag-handle {
@@ -841,21 +868,11 @@ h1 {
     font-size: 12px;
     cursor: grab;
     user-select: none;
-    margin-right: 8px;
+    flex-shrink: 0;
 }
 
 .graph-drag-handle:active {
     cursor: grabbing;
-}
-
-.graph-card-header h3 {
-    display: flex;
-    align-items: center;
-    font-size: 14px;
-    font-weight: 600;
-    color: #aaa;
-    margin: 0;
-    flex: 1;
 }
 
 .timeframe-selector {
@@ -976,6 +993,7 @@ h1 {
     justify-content: center;
     padding: 0;
     transition: color 0.3s;
+    flex-shrink: 0;
 }
 
 .remove-graph-btn:hover {
@@ -2577,8 +2595,32 @@ button:active {
 
     .graph-card-header {
         padding: 12px 16px;
-        flex-wrap: wrap;
-        gap: 6px;
+        flex-direction: column;
+        align-items: stretch;
+        gap: 8px;
+    }
+
+    .graph-header-title {
+        width: 100%;
+    }
+
+    .graph-header-mode,
+    .graph-header-timeframe {
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+        scrollbar-width: none;
+        flex-wrap: nowrap;
+        padding-bottom: 2px;
+    }
+
+    .graph-header-mode::-webkit-scrollbar,
+    .graph-header-timeframe::-webkit-scrollbar {
+        display: none;
+    }
+
+    .graph-header-mode .mode-btn,
+    .graph-header-timeframe .timeframe-btn {
+        flex-shrink: 0;
     }
 
     .graph-resize-handle {

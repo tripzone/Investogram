@@ -76,14 +76,12 @@ class StockDashboard {
     }
 
     updateAvailableGraphs() {
-        const categoryColumns = this.loadCategoriesColumns();
-
         this.availableGraphs = [
             {
                 id: 'asset-allocation',
-                title: 'All Assets',
-                cardTitle: 'Asset Allocation: All Assets',
-                description: 'Portfolio breakdown by symbol',
+                title: 'Asset Allocation',
+                cardTitle: 'Asset Allocation',
+                description: 'Portfolio breakdown — toggle between all assets and category groups',
                 heading: 'Asset Allocation'
             },
             {
@@ -102,31 +100,12 @@ class StockDashboard {
             },
             {
                 id: 'portfolio-performance',
-                title: 'Portfolio vs S&P 500 (Daily)',
+                title: 'Portfolio vs S&P 500',
                 cardTitle: 'Portfolio vs S&P 500',
-                description: 'Daily performance vs S&P 500 — toggle between TWR and S&P Equivalent views',
-                heading: 'Performance'
-            },
-            {
-                id: 'portfolio-performance-weekly',
-                title: 'Portfolio vs S&P 500 (Long-Term)',
-                cardTitle: 'Portfolio vs S&P 500 (Long-Term)',
-                description: 'Long-term performance vs S&P 500 — toggle between TWR and S&P Equivalent views',
+                description: 'Performance vs S&P 500 across all timeframes — toggle between TWR and S&P Equivalent views',
                 heading: 'Performance'
             }
         ];
-
-        // Add grouped allocation card if categories are available
-        if (categoryColumns && categoryColumns.length > 0) {
-            this.availableGraphs.splice(1, 0, {
-                id: 'asset-allocation-groups',
-                title: 'By Group',
-                cardTitle: 'Asset Allocation: By Group',
-                description: `Allocation by category — toggle between: ${categoryColumns.join(', ')}`,
-                heading: 'Asset Allocation',
-                categoryColumns
-            });
-        }
     }
 
     setupTabs() {
@@ -984,13 +963,20 @@ class StockDashboard {
         const parsed = JSON.parse(saved);
         // Migrate old format (array of strings) to new format (array of objects)
         // Default to width 6 (full width) for better backward compatibility
+        const LEGACY_ID_MAP = {
+            'portfolio-performance-weekly': 'portfolio-performance',
+            'asset-allocation-groups': 'asset-allocation',
+        };
         const seen = new Set();
         return parsed.map(item => {
             if (typeof item === 'object' && item.isDivider) {
                 return item; // Pass through divider entries as-is
             }
             if (typeof item === 'string') {
-                return { id: item, width: 6 };
+                return { id: LEGACY_ID_MAP[item] || item, width: 6 };
+            }
+            if (item.id && LEGACY_ID_MAP[item.id]) {
+                return { ...item, id: LEGACY_ID_MAP[item.id] };
             }
             return item;
         }).filter(item => {
@@ -1198,26 +1184,21 @@ class StockDashboard {
             const isMarketActivityGraph = graphId === 'market-activity';
             const isStockAnalysisGraph = graphId === 'stock-analysis';
             const isPerformanceGraph = graphId === 'portfolio-performance';
-            const isWeeklyPerformanceGraph = graphId === 'portfolio-performance-weekly';
-            const isGroupedAllocationGraph = graphId === 'asset-allocation-groups';
-            const isPerformanceOrWeekly = isPerformanceGraph || isWeeklyPerformanceGraph;
+            const isAllocationGraph = graphId === 'asset-allocation' || graphId.startsWith('category-');
 
-            // Timeframe buttons (market activity + performance graphs)
-            const timeframeButtons = isMarketActivityGraph ? `
-                <div class="timeframe-selector">
+            // Timeframe row (market activity + performance graphs)
+            const SHORT_TERM_TFS = new Set(['7d', '28d', '3m']);
+            const timeframeRow = isMarketActivityGraph ? `
+                <div class="graph-header-timeframe">
                     <button class="timeframe-btn active" data-timeframe="1y">1Y</button>
                     <button class="timeframe-btn" data-timeframe="5y">5Y</button>
                     <button class="timeframe-btn" data-timeframe="all">ALL</button>
                 </div>
             ` : isPerformanceGraph ? `
-                <div class="timeframe-selector">
+                <div class="graph-header-timeframe">
                     <button class="timeframe-btn" data-timeframe="7d">7D</button>
-                    <button class="timeframe-btn active" data-timeframe="28d">28D</button>
+                    <button class="timeframe-btn" data-timeframe="28d">28D</button>
                     <button class="timeframe-btn" data-timeframe="3m">3M</button>
-                    <button class="timeframe-btn" data-timeframe="6m">6M</button>
-                </div>
-            ` : isWeeklyPerformanceGraph ? `
-                <div class="timeframe-selector">
                     <button class="timeframe-btn" data-timeframe="6m">6M</button>
                     <button class="timeframe-btn active" data-timeframe="1y">1Y</button>
                     <button class="timeframe-btn" data-timeframe="2y">2Y</button>
@@ -1226,7 +1207,7 @@ class StockDashboard {
                 </div>
             ` : '';
 
-            // Mode selector
+            // Mode row
             const combinedInfoContent = `
                 <strong>TWR vs S&P Equivalent — what's the difference?</strong>
                 <p><em>TWR (Time-Weighted Return):</em> Every period counts equally regardless of how much capital was deployed. Best for evaluating stock-picking skill — "did my selections beat the market?"</p>
@@ -1234,10 +1215,10 @@ class StockDashboard {
                 <p>The two will diverge when you make large trades — that divergence is real information, not noise. TWR gap = selection skill. S&P Equiv gap = dollar-weighted alpha including deployment timing.</p>
             `;
 
-            let modeSelector = '';
-            if (isPerformanceOrWeekly) {
-                modeSelector = `
-                    <div class="mode-selector">
+            let modeRow = '';
+            if (isPerformanceGraph) {
+                modeRow = `
+                    <div class="graph-header-mode">
                         <button class="mode-btn active" data-mode="twr">TWR</button>
                         <button class="mode-btn" data-mode="sp-equivalent">S&P Equiv.</button>
                         <div class="graph-info-tooltip">
@@ -1247,29 +1228,29 @@ class StockDashboard {
                     </div>
                 `;
             } else if (isMarketActivityGraph) {
-                modeSelector = `
-                    <div class="mode-selector">
+                modeRow = `
+                    <div class="graph-header-mode">
                         <button class="mode-btn active" data-mode="net-trades">Net Trades</button>
                         <button class="mode-btn" data-mode="by-ticker">By Ticker</button>
                     </div>
                 `;
             } else if (isStockAnalysisGraph) {
-                modeSelector = `
-                    <div class="mode-selector">
+                modeRow = `
+                    <div class="graph-header-mode">
                         <button class="mode-btn active" data-mode="by-price">By Price</button>
                         <button class="mode-btn" data-mode="by-date">By Date</button>
                     </div>
                 `;
-            } else if (isGroupedAllocationGraph) {
+            } else if (isAllocationGraph) {
                 const catCols = this.loadCategoriesColumns() || [];
-                const catBtns = catCols.map((col, i) =>
-                    `<button class="mode-btn${i === 0 ? ' active' : ''}" data-mode="${col}">${col}</button>`
-                ).join('');
-                modeSelector = catCols.length > 0 ? `<div class="mode-selector">${catBtns}</div>` : '';
+                const allBtns = [
+                    `<button class="mode-btn active" data-mode="all-assets">All Assets</button>`,
+                    ...catCols.map(col => `<button class="mode-btn" data-mode="${col}">${col}</button>`)
+                ].join('');
+                modeRow = `<div class="graph-header-mode">${allBtns}</div>`;
             }
 
             // Clock toggle for allocation graphs
-            const isAllocationGraph = graphId === 'asset-allocation' || graphId === 'asset-allocation-groups' || graphId.startsWith('category-');
             const allocationRefreshBtn = isAllocationGraph ? `
                 <button class="allocation-time-btn${this.useCurrentPrices ? '' : ' inactive'}"
                         title="${this.useCurrentPrices ? 'Using current market prices' : 'Using acquisition prices'}"
@@ -1298,12 +1279,15 @@ class StockDashboard {
 
             graphCard.innerHTML = `
                 <div class="graph-card-header">
-                    <span class="graph-drag-handle">⋮⋮</span>
-                    <h3>${graphDef.cardTitle || graphDef.title}${modeSelector}</h3>
-                    ${allocationRefreshBtn}
-                    ${timeframeButtons}
+                    <div class="graph-header-title">
+                        <span class="graph-drag-handle">⋮⋮</span>
+                        <span class="graph-card-title">${graphDef.cardTitle || graphDef.title}</span>
+                        ${allocationRefreshBtn}
+                        <button class="remove-graph-btn" onclick="dashboard.removeGraph('${graphId}')">×</button>
+                    </div>
+                    ${modeRow}
+                    ${timeframeRow}
                     ${tickerSelector}
-                    <button class="remove-graph-btn" onclick="dashboard.removeGraph('${graphId}')">×</button>
                 </div>
                 <div class="graph-card-body">
                     <canvas id="${canvasId}"></canvas>
@@ -1356,53 +1340,53 @@ class StockDashboard {
                 }));
             }
 
-            // Performance graphs: mode + timeframe listeners
-            if (isPerformanceOrWeekly) {
+            // Performance graph: mode + timeframe listeners (short-term → daily, long-term → weekly)
+            if (isPerformanceGraph) {
                 const modeBtns = graphCard.querySelectorAll('.mode-btn');
                 const timeframeBtns = graphCard.querySelectorAll('.timeframe-btn');
 
                 const renderWithActiveState = () => {
                     const mode = graphCard.querySelector('.mode-btn.active')?.dataset.mode || 'twr';
-                    const timeframe = graphCard.querySelector('.timeframe-btn.active')?.dataset.timeframe
-                        || (isPerformanceGraph ? '28d' : '1y');
-                    if (isPerformanceGraph) {
-                        mode === 'sp-equivalent'
+                    const timeframe = graphCard.querySelector('.timeframe-btn.active')?.dataset.timeframe || '1y';
+                    const useDaily = SHORT_TERM_TFS.has(timeframe);
+                    if (mode === 'sp-equivalent') {
+                        useDaily
                             ? this.renderSPEquivalentPerformance(canvasId, timeframe)
-                            : this.renderPortfolioPerformance(canvasId, timeframe);
+                            : this.renderSPEquivalentPerformanceWeekly(canvasId, timeframe);
                     } else {
-                        mode === 'sp-equivalent'
-                            ? this.renderSPEquivalentPerformanceWeekly(canvasId, timeframe)
+                        useDaily
+                            ? this.renderPortfolioPerformance(canvasId, timeframe)
                             : this.renderPortfolioPerformanceWeekly(canvasId, timeframe);
                     }
                 };
 
-                modeBtns.forEach(btn => {
-                    btn.addEventListener('click', (e) => {
-                        e.stopPropagation();
-                        modeBtns.forEach(b => b.classList.remove('active'));
-                        btn.classList.add('active');
-                        renderWithActiveState();
-                    });
-                });
+                modeBtns.forEach(btn => btn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    modeBtns.forEach(b => b.classList.remove('active'));
+                    btn.classList.add('active');
+                    renderWithActiveState();
+                }));
 
-                timeframeBtns.forEach(btn => {
-                    btn.addEventListener('click', (e) => {
-                        e.stopPropagation();
-                        timeframeBtns.forEach(b => b.classList.remove('active'));
-                        btn.classList.add('active');
-                        renderWithActiveState();
-                    });
-                });
+                timeframeBtns.forEach(btn => btn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    timeframeBtns.forEach(b => b.classList.remove('active'));
+                    btn.classList.add('active');
+                    renderWithActiveState();
+                }));
             }
 
-            // Grouped allocation: mode listener
-            if (isGroupedAllocationGraph) {
+            // Asset allocation: mode listener (All Assets + category columns)
+            if (isAllocationGraph) {
                 const modeBtns = graphCard.querySelectorAll('.mode-btn');
                 modeBtns.forEach(btn => btn.addEventListener('click', (e) => {
                     e.stopPropagation();
                     modeBtns.forEach(b => b.classList.remove('active'));
                     btn.classList.add('active');
-                    this.renderCategoryAllocation(canvasId, btn.dataset.mode);
+                    if (btn.dataset.mode === 'all-assets') {
+                        this.renderAssetAllocation(canvasId);
+                    } else {
+                        this.renderCategoryAllocation(canvasId, btn.dataset.mode);
+                    }
                 }));
             }
 
@@ -1480,13 +1464,14 @@ class StockDashboard {
         }
 
         switch(graphId) {
-            case 'asset-allocation':
-                await this.renderAssetAllocation(canvasId);
-                break;
-            case 'asset-allocation-groups': {
+            case 'asset-allocation': {
                 const card = document.getElementById(`portfolio-graph-${graphId}`);
-                const activeMode = card?.querySelector('.mode-btn.active')?.dataset.mode;
-                if (activeMode) await this.renderCategoryAllocation(canvasId, activeMode);
+                const activeMode = card?.querySelector('.mode-btn.active')?.dataset.mode || 'all-assets';
+                if (activeMode === 'all-assets') {
+                    await this.renderAssetAllocation(canvasId);
+                } else {
+                    await this.renderCategoryAllocation(canvasId, activeMode);
+                }
                 break;
             }
             case 'market-activity': {
@@ -1520,17 +1505,17 @@ class StockDashboard {
             case 'portfolio-performance': {
                 const card = document.getElementById(`portfolio-graph-${graphId}`);
                 const mode = card?.querySelector('.mode-btn.active')?.dataset.mode || 'twr';
-                mode === 'sp-equivalent'
-                    ? await this.renderSPEquivalentPerformance(canvasId)
-                    : await this.renderPortfolioPerformance(canvasId);
-                break;
-            }
-            case 'portfolio-performance-weekly': {
-                const card = document.getElementById(`portfolio-graph-${graphId}`);
-                const mode = card?.querySelector('.mode-btn.active')?.dataset.mode || 'twr';
-                mode === 'sp-equivalent'
-                    ? await this.renderSPEquivalentPerformanceWeekly(canvasId)
-                    : await this.renderPortfolioPerformanceWeekly(canvasId);
+                const timeframe = card?.querySelector('.timeframe-btn.active')?.dataset.timeframe || '1y';
+                const useDaily = new Set(['7d', '28d', '3m']).has(timeframe);
+                if (mode === 'sp-equivalent') {
+                    useDaily
+                        ? await this.renderSPEquivalentPerformance(canvasId, timeframe)
+                        : await this.renderSPEquivalentPerformanceWeekly(canvasId, timeframe);
+                } else {
+                    useDaily
+                        ? await this.renderPortfolioPerformance(canvasId, timeframe)
+                        : await this.renderPortfolioPerformanceWeekly(canvasId, timeframe);
+                }
                 break;
             }
             default: {
@@ -1575,16 +1560,17 @@ class StockDashboard {
                         : this.renderBuySellAnalysis(canvasId, ticker);
                 } else if (graphId === 'portfolio-performance') {
                     const mode = graphCard?.querySelector('.mode-btn.active')?.dataset.mode || 'twr';
-                    const tf = activeTimeframeBtn?.dataset.timeframe || '28d';
-                    mode === 'sp-equivalent'
-                        ? this.renderSPEquivalentPerformance(canvasId, tf)
-                        : this.renderPortfolioPerformance(canvasId, tf);
-                } else if (graphId === 'portfolio-performance-weekly') {
-                    const mode = graphCard?.querySelector('.mode-btn.active')?.dataset.mode || 'twr';
                     const tf = activeTimeframeBtn?.dataset.timeframe || '1y';
-                    mode === 'sp-equivalent'
-                        ? this.renderSPEquivalentPerformanceWeekly(canvasId, tf)
-                        : this.renderPortfolioPerformanceWeekly(canvasId, tf);
+                    const useDaily = new Set(['7d', '28d', '3m']).has(tf);
+                    if (mode === 'sp-equivalent') {
+                        useDaily
+                            ? this.renderSPEquivalentPerformance(canvasId, tf)
+                            : this.renderSPEquivalentPerformanceWeekly(canvasId, tf);
+                    } else {
+                        useDaily
+                            ? this.renderPortfolioPerformance(canvasId, tf)
+                            : this.renderPortfolioPerformanceWeekly(canvasId, tf);
+                    }
                 } else {
                     this.renderGraph(graphId, canvasId);
                 }
@@ -1652,7 +1638,7 @@ class StockDashboard {
         this.portfolioGraphs.forEach((graphEntry) => {
             if (graphEntry.isDivider) return;
             const graphId = typeof graphEntry === 'string' ? graphEntry : graphEntry.id;
-            if (graphId !== 'asset-allocation' && graphId !== 'asset-allocation-groups' && !graphId.startsWith('category-')) return;
+            if (graphId !== 'asset-allocation' && !graphId.startsWith('category-')) return;
 
             const canvasId = this.graphCanvasMap.get(graphId);
             if (!canvasId) return;
