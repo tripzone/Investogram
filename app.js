@@ -1186,15 +1186,9 @@ class StockDashboard {
             const isPerformanceGraph = graphId === 'portfolio-performance';
             const isAllocationGraph = graphId === 'asset-allocation' || graphId.startsWith('category-');
 
-            // Timeframe row (market activity + performance graphs)
+            // Timeframe row (performance graph only — market activity shares one row with mode)
             const SHORT_TERM_TFS = new Set(['7d', '28d', '3m']);
-            const timeframeRow = isMarketActivityGraph ? `
-                <div class="graph-header-timeframe">
-                    <button class="timeframe-btn active" data-timeframe="1y">1Y</button>
-                    <button class="timeframe-btn" data-timeframe="5y">5Y</button>
-                    <button class="timeframe-btn" data-timeframe="all">ALL</button>
-                </div>
-            ` : isPerformanceGraph ? `
+            const timeframeRow = isPerformanceGraph ? `
                 <div class="graph-header-timeframe">
                     <button class="timeframe-btn" data-timeframe="7d">7D</button>
                     <button class="timeframe-btn" data-timeframe="28d">28D</button>
@@ -1207,7 +1201,7 @@ class StockDashboard {
                 </div>
             ` : '';
 
-            // Mode row
+            // Mode row (market activity combines mode + timeframe in one row)
             const combinedInfoContent = `
                 <strong>TWR vs S&P Equivalent — what's the difference?</strong>
                 <p><em>TWR (Time-Weighted Return):</em> Every period counts equally regardless of how much capital was deployed. Best for evaluating stock-picking skill — "did my selections beat the market?"</p>
@@ -1232,6 +1226,9 @@ class StockDashboard {
                     <div class="graph-header-mode">
                         <button class="mode-btn active" data-mode="net-trades">Net Trades</button>
                         <button class="mode-btn" data-mode="by-ticker">By Ticker</button>
+                        <button class="timeframe-btn active" data-timeframe="1y">1Y</button>
+                        <button class="timeframe-btn" data-timeframe="5y">5Y</button>
+                        <button class="timeframe-btn" data-timeframe="all">ALL</button>
                     </div>
                 `;
             } else if (isStockAnalysisGraph) {
@@ -1283,11 +1280,11 @@ class StockDashboard {
                         <span class="graph-drag-handle">⋮⋮</span>
                         <span class="graph-card-title">${graphDef.cardTitle || graphDef.title}</span>
                         ${allocationRefreshBtn}
-                        <button class="remove-graph-btn" onclick="dashboard.removeGraph('${graphId}')">×</button>
                     </div>
                     ${modeRow}
                     ${timeframeRow}
                     ${tickerSelector}
+                    <button class="remove-graph-btn" onclick="dashboard.removeGraph('${graphId}')">×</button>
                 </div>
                 <div class="graph-card-body">
                     <canvas id="${canvasId}"></canvas>

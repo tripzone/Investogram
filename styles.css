@@ -835,6 +835,7 @@ h1 {
     border-bottom: 1px solid #333;
     cursor: move;
     flex-wrap: wrap;
+    position: relative;
 }
 
 .graph-header-title {
@@ -2598,6 +2599,8 @@ button:active {
         flex-direction: column;
         align-items: stretch;
         gap: 8px;
+        position: relative;
+        padding-right: 40px; /* reserve space for the absolute × button */
     }
 
     .graph-header-title {
@@ -2606,23 +2609,13 @@ button:active {
 
     .graph-header-mode,
     .graph-header-timeframe {
-        overflow-x: auto;
-        -webkit-overflow-scrolling: touch;
-        scrollbar-width: none;
-        flex-wrap: nowrap;
-        padding-bottom: 2px;
-        width: 0;
-        min-width: 100%;
+        flex-wrap: wrap;
     }
 
-    .graph-header-mode::-webkit-scrollbar,
-    .graph-header-timeframe::-webkit-scrollbar {
-        display: none;
-    }
-
-    .graph-header-mode .mode-btn,
-    .graph-header-timeframe .timeframe-btn {
-        flex-shrink: 0;
+    .graph-card-header .remove-graph-btn {
+        position: absolute;
+        top: 10px;
+        right: 12px;
     }
 
     .graph-resize-handle {
