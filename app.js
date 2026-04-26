@@ -1233,9 +1233,13 @@ class StockDashboard {
                 `;
             } else if (isStockAnalysisGraph) {
                 modeRow = `
-                    <div class="graph-header-mode">
+                    <div class="graph-header-mode graph-header-mode-analysis">
                         <button class="mode-btn active" data-mode="by-price">By Price</button>
                         <button class="mode-btn" data-mode="by-date">By Date</button>
+                        <div class="ticker-selector-wrapper">
+                            <input type="text" class="ticker-selector-input" placeholder="Select ticker..." autocomplete="off">
+                            <div class="ticker-dropdown hidden"><div class="ticker-list"></div></div>
+                        </div>
                     </div>
                 `;
             } else if (isAllocationGraph) {
@@ -1259,8 +1263,8 @@ class StockDashboard {
                 </button>
             ` : '';
 
-            // Ticker selector for stock analysis
-            const tickerSelector = (isStockAnalysisGraph || graphId === 'buys-sells-analysis' || graphId === 'buys-sells-by-date') ? `
+            // Ticker selector for legacy buys-sells graphs only (stock-analysis embeds it in modeRow)
+            const tickerSelector = (graphId === 'buys-sells-analysis' || graphId === 'buys-sells-by-date') ? `
                 <div class="ticker-selector-wrapper">
                     <input
                         type="text"
@@ -1724,6 +1728,12 @@ class StockDashboard {
     }
 
     async renderAssetAllocation(canvasId) {
+        const existingChart = this.portfolioCharts.get(canvasId);
+        if (existingChart) {
+            existingChart.destroy();
+            this.portfolioCharts.delete(canvasId);
+        }
+
         const rawPositions = this.loadPortfolioData('positions');
         const positionsData = rawPositions
             ? rawPositions.filter(p => !this.portfolioExcludedSymbols.has(p.symbol?.toUpperCase()))

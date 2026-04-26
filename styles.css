@@ -842,18 +842,18 @@ h1 {
     display: flex;
     align-items: center;
     gap: 6px;
-    flex: 1;
-    min-width: 0;
+    flex: 0 1 auto;
+    min-width: 80px;
 }
 
 .graph-card-title {
     font-size: 14px;
     font-weight: 600;
     color: #aaa;
-    flex: 1;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+    min-width: 0;
 }
 
 .graph-header-mode,
@@ -862,6 +862,20 @@ h1 {
     align-items: center;
     gap: 4px;
     flex-shrink: 0;
+}
+
+.graph-header-timeframe {
+    margin-left: auto;
+}
+
+/* Stock analysis: ticker input stretches to fill available space in mode row */
+.graph-header-mode-analysis {
+    flex: 1;
+}
+
+.graph-header-mode-analysis .ticker-selector-wrapper {
+    flex: 1;
+    min-width: 80px;
 }
 
 .graph-drag-handle {
@@ -2610,6 +2624,7 @@ button:active {
     .graph-header-mode,
     .graph-header-timeframe {
         flex-wrap: wrap;
+        margin-left: 0;
     }
 
     .graph-card-header .remove-graph-btn {
