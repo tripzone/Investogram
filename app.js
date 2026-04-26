@@ -104,6 +104,13 @@ class StockDashboard {
                 cardTitle: 'Portfolio vs S&P 500',
                 description: 'Performance vs S&P 500 across all timeframes — toggle between TWR and S&P Equivalent views',
                 heading: 'Performance'
+            },
+            {
+                id: 'position-deep-dive',
+                title: 'Position Deep Dive',
+                cardTitle: 'Position Deep Dive',
+                description: 'Per-stock analysis: shares, portfolio weight, price return, dividends, annualized returns',
+                heading: 'Position Analysis'
             }
         ];
     }
@@ -1185,6 +1192,7 @@ class StockDashboard {
             const isStockAnalysisGraph = graphId === 'stock-analysis';
             const isPerformanceGraph = graphId === 'portfolio-performance';
             const isAllocationGraph = graphId === 'asset-allocation' || graphId.startsWith('category-');
+            const isPositionDeepDive = graphId === 'position-deep-dive';
 
             // Timeframe row (performance graph only — market activity shares one row with mode)
             const SHORT_TERM_TFS = new Set(['7d', '28d', '3m']);
@@ -1249,6 +1257,15 @@ class StockDashboard {
                     ...catCols.map(col => `<button class="mode-btn" data-mode="${col}">${col}</button>`)
                 ].join('');
                 modeRow = `<div class="graph-header-mode">${allBtns}</div>`;
+            } else if (isPositionDeepDive) {
+                modeRow = `
+                    <div class="graph-header-mode graph-header-mode-analysis">
+                        <div class="ticker-selector-wrapper">
+                            <input type="text" class="ticker-selector-input" placeholder="Select stock..." autocomplete="off">
+                            <div class="ticker-dropdown hidden"><div class="ticker-list"></div></div>
+                        </div>
+                    </div>
+                `;
             }
 
             // Clock toggle for allocation graphs
@@ -1290,9 +1307,16 @@ class StockDashboard {
                     ${tickerSelector}
                     <button class="remove-graph-btn" onclick="dashboard.removeGraph('${graphId}')">×</button>
                 </div>
+                ${isPositionDeepDive ? `
+                <div class="graph-card-body position-deep-dive-body">
+                    <div class="position-stats-body"></div>
+                    <canvas id="${canvasId}"></canvas>
+                </div>
+                ` : `
                 <div class="graph-card-body">
                     <canvas id="${canvasId}"></canvas>
                 </div>
+                `}
                 <div class="graph-resize-handle"></div>
             `;
 
@@ -1391,8 +1415,8 @@ class StockDashboard {
                 }));
             }
 
-            // Ticker selector for stock-analysis (and legacy buys-sells graphs)
-            if (isStockAnalysisGraph || graphId === 'buys-sells-analysis' || graphId === 'buys-sells-by-date') {
+            // Ticker selector for stock-analysis, position-deep-dive, and legacy graphs
+            if (isStockAnalysisGraph || isPositionDeepDive || graphId === 'buys-sells-analysis' || graphId === 'buys-sells-by-date') {
                 this.setupTickerSelector(graphCard, canvasId, graphId);
             }
 
@@ -1519,6 +1543,12 @@ class StockDashboard {
                 }
                 break;
             }
+            case 'position-deep-dive': {
+                const card = document.getElementById(`portfolio-graph-${graphId}`);
+                const ticker = card?.querySelector('.ticker-selector-input')?.value || null;
+                await this.renderPositionDeepDive(canvasId, ticker);
+                break;
+            }
             default: {
                 const canvas = document.getElementById(canvasId);
                 if (canvas) {
@@ -1559,6 +1589,9 @@ class StockDashboard {
                     mode === 'by-date'
                         ? this.renderBuySellsByDate(canvasId, ticker)
                         : this.renderBuySellAnalysis(canvasId, ticker);
+                } else if (graphId === 'position-deep-dive') {
+                    const ticker = graphCard?.querySelector('.ticker-selector-input')?.value || null;
+                    this.renderPositionDeepDive(canvasId, ticker);
                 } else if (graphId === 'portfolio-performance') {
                     const mode = graphCard?.querySelector('.mode-btn.active')?.dataset.mode || 'twr';
                     const tf = activeTimeframeBtn?.dataset.timeframe || '1y';
@@ -1966,6 +1999,196 @@ class StockDashboard {
         });
 
         // Store chart instance
+        this.portfolioCharts.set(canvasId, chart);
+    }
+
+    async renderPositionDeepDive(canvasId, symbol) {
+        const existingChart = this.portfolioCharts.get(canvasId);
+        if (existingChart) { existingChart.destroy(); this.portfolioCharts.delete(canvasId); }
+
+        const canvas = document.getElementById(canvasId);
+        if (!canvas) return;
+
+        const statsDiv = canvas.closest('.graph-card-body')?.querySelector('.position-stats-body');
+        const clearStats = () => { if (statsDiv) statsDiv.innerHTML = ''; };
+
+        if (!symbol) {
+            clearStats();
+            this.showGraphMessage(canvas, 'Select a stock to analyze');
+            return;
+        }
+
+        const rawPositions = this.loadPortfolioData('positions');
+        const positions = rawPositions
+            ? rawPositions.filter(p => !this.portfolioExcludedSymbols.has(p.symbol?.toUpperCase()))
+            : null;
+        if (!positions || positions.length === 0) {
+            clearStats();
+            this.showGraphMessage(canvas, 'No positions data available');
+            return;
+        }
+
+        const pos = positions.find(p => p.symbol?.toUpperCase() === symbol.toUpperCase());
+        if (!pos) {
+            clearStats();
+            this.showGraphMessage(canvas, `${symbol} not found in positions`);
+            return;
+        }
+
+        let usdToCad = await this.getExchangeRate('USD', 'CAD') || 1.0;
+
+        // ── Position basics ──
+        const qty = parseFloat(pos.quantity || 0);
+        const avgEntry = parseFloat(pos.average_entry_price || 0);
+        const costBasisRaw = parseFloat(pos.total_cost || 0);
+        const currency = pos.currency || 'CAD';
+        const costBasisCAD = currency === 'USD' ? costBasisRaw * usdToCad : costBasisRaw;
+
+        // Total portfolio value (cost basis of all positions)
+        const totalPortfolioCAD = positions.reduce((sum, p) => {
+            const cost = parseFloat(p.total_cost || 0);
+            return sum + (p.currency === 'USD' ? cost * usdToCad : cost);
+        }, 0);
+
+        // Current price / value
+        const usingLatest = this.useCurrentPrices && this.latestPricesState === 'active' && this.latestPrices;
+        let currentPrice = avgEntry;
+        let currentValueCAD = costBasisCAD;
+        if (usingLatest) {
+            const priceData = this.latestPrices.get(symbol.toUpperCase());
+            if (priceData) {
+                currentPrice = priceData.currentPrice;
+                const raw = qty * currentPrice;
+                currentValueCAD = priceData.currency === 'USD' ? raw * usdToCad : raw;
+            }
+        }
+
+        const portfolioPct = totalPortfolioCAD > 0 ? (currentValueCAD / totalPortfolioCAD) * 100 : 0;
+        const priceReturnPct = avgEntry > 0 ? ((currentPrice - avgEntry) / avgEntry) * 100 : 0;
+        const totalPnlCAD = currentValueCAD - costBasisCAD;
+
+        // ── Trades: first buy date + dividends ──
+        const trades = this.loadPortfolioData('trades');
+        let firstBuyDate = null;
+        let totalDividendsCAD = 0;
+
+        if (trades) {
+            const sym = symbol.toUpperCase();
+            const symTrades = trades.filter(t => t.symbol?.toUpperCase() === sym);
+
+            // First buy
+            const buys = symTrades
+                .filter(t => { const tp = t.type?.toLowerCase(); return tp === 'buy' || tp === 'trade' || tp === 'liquidation'; })
+                .filter(t => !isNaN(new Date(t.transaction_date).getTime()))
+                .sort((a, b) => new Date(a.transaction_date) - new Date(b.transaction_date));
+            if (buys.length > 0) firstBuyDate = new Date(buys[0].transaction_date);
+
+            // Total dividends
+            symTrades.filter(t => t.type?.toLowerCase() === 'dividend').forEach(t => {
+                let amt = 0;
+                if (t.net_amount)    amt = parseFloat(t.net_amount);
+                else if (t.amount)   amt = parseFloat(t.amount);
+                else if (t.value)    amt = parseFloat(t.value);
+                else if (t.total)    amt = parseFloat(t.total);
+                else if (t.total_cost) amt = parseFloat(t.total_cost);
+                else if (t.quantity && t.price) amt = parseFloat(t.quantity) * parseFloat(t.price);
+                if (!isNaN(amt) && amt !== 0) {
+                    totalDividendsCAD += (t.currency || currency) === 'USD' ? amt * usdToCad : amt;
+                }
+            });
+        }
+
+        // ── Annualized returns ──
+        const now = new Date();
+        let yearsHeld = null, annPriceReturn = null, annDivYield = null, annTotalReturn = null;
+        if (firstBuyDate) {
+            yearsHeld = (now - firstBuyDate) / (365.25 * 24 * 60 * 60 * 1000);
+            if (yearsHeld > 0 && avgEntry > 0 && currentPrice > 0) {
+                annPriceReturn = (Math.pow(currentPrice / avgEntry, 1 / yearsHeld) - 1) * 100;
+                if (costBasisCAD > 0) {
+                    annDivYield = (totalDividendsCAD / costBasisCAD / yearsHeld) * 100;
+                    const totalReturnFrac = (totalPnlCAD + totalDividendsCAD) / costBasisCAD;
+                    annTotalReturn = (Math.pow(1 + totalReturnFrac, 1 / yearsHeld) - 1) * 100;
+                }
+            }
+        }
+
+        // ── Stats HTML ──
+        const fmtCAD = v => `CAD $${Math.abs(v).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+        const fmtPct = v => v != null ? `${v >= 0 ? '+' : ''}${v.toFixed(2)}%` : '—';
+        const fmtQty = v => v % 1 === 0 ? v.toLocaleString() : v.toLocaleString('en-US', { maximumFractionDigits: 4 });
+        const sign = v => v >= 0 ? 'pos-stat-pos' : 'pos-stat-neg';
+
+        const statItem = (label, value, cls = '') =>
+            `<div class="pos-stat"><span class="pos-stat-label">${label}</span><span class="pos-stat-value ${cls}">${value}</span></div>`;
+
+        const statsHTML = [
+            statItem('Shares Held', fmtQty(qty)),
+            statItem('Portfolio Weight', portfolioPct.toFixed(2) + '%'),
+            statItem('Cost Basis', fmtCAD(costBasisCAD)),
+            statItem('Current Value', fmtCAD(currentValueCAD), usingLatest ? '' : 'pos-stat-stale'),
+            statItem('Total P&L', (totalPnlCAD >= 0 ? '+' : '-') + fmtCAD(totalPnlCAD), sign(totalPnlCAD)),
+            statItem('Price Return', fmtPct(priceReturnPct), sign(priceReturnPct)),
+            annPriceReturn != null ? statItem('Ann. Price Return', fmtPct(annPriceReturn), sign(annPriceReturn)) : '',
+            totalDividendsCAD > 0 ? statItem('Total Dividends', fmtCAD(totalDividendsCAD), 'pos-stat-pos') : '',
+            annDivYield != null && totalDividendsCAD > 0 ? statItem('Ann. Div Yield', fmtPct(annDivYield), 'pos-stat-pos') : '',
+            annTotalReturn != null ? statItem('Ann. Total Return', fmtPct(annTotalReturn), sign(annTotalReturn)) : '',
+            firstBuyDate ? statItem('Held Since', firstBuyDate.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' })) : '',
+            yearsHeld != null ? statItem('Years Held', yearsHeld.toFixed(1) + 'y') : '',
+        ].join('');
+
+        if (statsDiv) statsDiv.innerHTML = `<div class="pos-stats-grid">${statsHTML}</div>`;
+
+        // ── Bar chart: return metrics ──
+        const chartLabels = ['Price\nReturn', 'Div\nReturn', 'Total\nReturn', 'Ann.\nPrice', 'Ann.\nDiv', 'Ann.\nTotal'];
+        const divReturnPct = costBasisCAD > 0 ? (totalDividendsCAD / costBasisCAD) * 100 : 0;
+        const totalReturnPct = costBasisCAD > 0 ? ((totalPnlCAD + totalDividendsCAD) / costBasisCAD) * 100 : priceReturnPct;
+        const chartValues = [
+            priceReturnPct,
+            totalDividendsCAD > 0 ? divReturnPct : null,
+            totalReturnPct,
+            annPriceReturn,
+            annDivYield != null && totalDividendsCAD > 0 ? annDivYield : null,
+            annTotalReturn,
+        ];
+
+        const labels = [], values = [];
+        chartLabels.forEach((l, i) => { if (chartValues[i] != null) { labels.push(l); values.push(chartValues[i]); } });
+
+        if (labels.length === 0 || canvas.offsetWidth === 0) return;
+
+        const chart = new Chart(canvas.getContext('2d'), {
+            type: 'bar',
+            data: {
+                labels,
+                datasets: [{
+                    data: values,
+                    backgroundColor: values.map(v => v >= 0 ? 'rgba(72,187,120,0.7)' : 'rgba(252,129,129,0.7)'),
+                    borderColor:     values.map(v => v >= 0 ? '#48bb78' : '#fc8181'),
+                    borderWidth: 1,
+                    borderRadius: 3,
+                }]
+            },
+            options: {
+                animation: false,
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: { display: false },
+                    tooltip: {
+                        callbacks: { label: ctx => `${ctx.parsed.y >= 0 ? '+' : ''}${ctx.parsed.y.toFixed(2)}%` }
+                    }
+                },
+                scales: {
+                    x: { grid: { color: '#2a2a2a' }, ticks: { color: '#888', font: { size: 10 } } },
+                    y: {
+                        grid: { color: '#2a2a2a' },
+                        ticks: { color: '#888', font: { size: 11 }, callback: v => `${v >= 0 ? '+' : ''}${v.toFixed(1)}%` }
+                    }
+                }
+            }
+        });
+
         this.portfolioCharts.set(canvasId, chart);
     }
 
@@ -2869,16 +3092,27 @@ class StockDashboard {
         const dropdown = graphCard.querySelector('.ticker-dropdown');
         const tickerList = graphCard.querySelector('.ticker-list');
 
-        // Get all unique tickers from trades, excluding hidden symbols
-        const tradesData = this.loadPortfolioData('trades');
+        // Get unique tickers: positions source for deep-dive, trades source for analysis graphs
         const tickers = new Set();
-        if (tradesData) {
-            tradesData.forEach(trade => {
-                if (trade.symbol && trade.type?.toLowerCase() !== 'dividend' &&
-                    !this.portfolioExcludedSymbols.has(trade.symbol.toUpperCase())) {
-                    tickers.add(trade.symbol);
-                }
-            });
+        if (graphId === 'position-deep-dive') {
+            const positionsData = this.loadPortfolioData('positions');
+            if (positionsData) {
+                positionsData.forEach(p => {
+                    if (p.symbol && !this.portfolioExcludedSymbols.has(p.symbol.toUpperCase())) {
+                        tickers.add(p.symbol);
+                    }
+                });
+            }
+        } else {
+            const tradesData = this.loadPortfolioData('trades');
+            if (tradesData) {
+                tradesData.forEach(trade => {
+                    if (trade.symbol && trade.type?.toLowerCase() !== 'dividend' &&
+                        !this.portfolioExcludedSymbols.has(trade.symbol.toUpperCase())) {
+                        tickers.add(trade.symbol);
+                    }
+                });
+            }
         }
         const sortedTickers = Array.from(tickers).sort();
 
@@ -2918,7 +3152,9 @@ class StockDashboard {
             item.addEventListener('click', () => {
                 input.value = ticker;
                 dropdown.classList.add('hidden');
-                if (graphId === 'stock-analysis') {
+                if (graphId === 'position-deep-dive') {
+                    this.renderPositionDeepDive(canvasId, ticker);
+                } else if (graphId === 'stock-analysis') {
                     // Use active mode to decide which render to call
                     const card = document.getElementById('portfolio-graph-stock-analysis');
                     const mode = card?.querySelector('.mode-btn.active')?.dataset.mode || 'by-price';

@@ -1093,6 +1093,75 @@ h1 {
     max-height: 400px;
 }
 
+/* Position Deep Dive card */
+.position-deep-dive-body {
+    flex-direction: column;
+    align-items: stretch;
+    justify-content: flex-start;
+    padding: 0;
+    min-height: 0;
+}
+
+.position-deep-dive-body canvas {
+    max-height: 260px;
+    min-height: 200px;
+    padding: 12px 20px 16px;
+}
+
+.pos-stats-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 0;
+    border-bottom: 1px solid #2a2a2a;
+}
+
+.pos-stat {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+    padding: 14px 16px;
+    border-right: 1px solid #2a2a2a;
+    border-bottom: 1px solid #2a2a2a;
+}
+
+.pos-stat:nth-child(4n) {
+    border-right: none;
+}
+
+.pos-stat-label {
+    font-size: 10px;
+    color: #555;
+    text-transform: uppercase;
+    letter-spacing: 0.6px;
+    font-weight: 600;
+}
+
+.pos-stat-value {
+    font-size: 15px;
+    font-weight: 600;
+    color: #bbb;
+    white-space: nowrap;
+}
+
+.pos-stat-pos { color: #48bb78; }
+.pos-stat-neg { color: #fc8181; }
+.pos-stat-stale { color: #777; }
+
+@media (max-width: 768px) {
+    .pos-stats-grid {
+        grid-template-columns: repeat(2, 1fr);
+    }
+    .pos-stat:nth-child(4n) {
+        border-right: 1px solid #2a2a2a;
+    }
+    .pos-stat:nth-child(2n) {
+        border-right: none;
+    }
+    .pos-stat-value {
+        font-size: 14px;
+    }
+}
+
 .graph-placeholder {
     color: #666;
     font-size: 13px;
