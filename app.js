@@ -2040,37 +2040,33 @@ class StockDashboard {
         const positions = rawPositions
             ? rawPositions.filter(p => !this.portfolioExcludedSymbols.has(p.symbol?.toUpperCase()))
             : null;
-        if (!positions || positions.length === 0) {
-            showMsg('No positions data available');
-            return;
-        }
 
-        const pos = positions.find(p => p.symbol?.toUpperCase() === symbol.toUpperCase());
-        if (!pos) {
-            showMsg(`${symbol} not found in positions`);
-            return;
-        }
+        const pos = positions?.find(p => p.symbol?.toUpperCase() === symbol.toUpperCase()) || null;
+        // pos may be null if this stock is in trades only (e.g. fully sold) — we still render
+        // whatever can be derived from trade history.
 
         let usdToCad = await this.getExchangeRate('USD', 'CAD') || 1.0;
 
-        // ── Position basics ──
-        const qty = parseFloat(pos.quantity || 0);
-        const avgEntry = parseFloat(pos.average_entry_price || 0);
-        const costBasisRaw = parseFloat(pos.total_cost || 0);
-        const currency = pos.currency || 'CAD';
-        const costBasisCAD = currency === 'USD' ? costBasisRaw * usdToCad : costBasisRaw;
+        // ── Position basics (null when not in positions CSV) ──
+        const qty        = pos ? parseFloat(pos.quantity             || 0) : null;
+        const avgEntry   = pos ? parseFloat(pos.average_entry_price  || 0) : null;
+        const costBasisRaw = pos ? parseFloat(pos.total_cost         || 0) : null;
+        const currency   = pos?.currency || 'CAD';
+        const costBasisCAD = costBasisRaw != null
+            ? (currency === 'USD' ? costBasisRaw * usdToCad : costBasisRaw)
+            : null;
 
-        // Total portfolio value (cost basis of all positions)
-        const totalPortfolioCAD = positions.reduce((sum, p) => {
+        // Total portfolio value (cost basis of all current positions)
+        const totalPortfolioCAD = positions ? positions.reduce((sum, p) => {
             const cost = parseFloat(p.total_cost || 0);
             return sum + (p.currency === 'USD' ? cost * usdToCad : cost);
-        }, 0);
+        }, 0) : 0;
 
         // Current price / value
         const usingLatest = this.useCurrentPrices && this.latestPricesState === 'active' && this.latestPrices;
         let currentPrice = avgEntry;
         let currentValueCAD = costBasisCAD;
-        if (usingLatest) {
+        if (usingLatest && qty != null) {
             const priceData = this.latestPrices.get(symbol.toUpperCase());
             if (priceData) {
                 currentPrice = priceData.currentPrice;
@@ -2079,9 +2075,9 @@ class StockDashboard {
             }
         }
 
-        const portfolioPct = totalPortfolioCAD > 0 ? (currentValueCAD / totalPortfolioCAD) * 100 : 0;
-        const priceReturnPct = avgEntry > 0 ? ((currentPrice - avgEntry) / avgEntry) * 100 : 0;
-        const totalPnlCAD = currentValueCAD - costBasisCAD;
+        const portfolioPct  = (totalPortfolioCAD > 0 && currentValueCAD != null) ? (currentValueCAD / totalPortfolioCAD) * 100 : null;
+        const priceReturnPct = (avgEntry != null && avgEntry > 0 && currentPrice != null) ? ((currentPrice - avgEntry) / avgEntry) * 100 : null;
+        const totalPnlCAD   = (currentValueCAD != null && costBasisCAD != null) ? currentValueCAD - costBasisCAD : null;
 
         // ── Trades: cash flows + dividends ──
         const trades = this.loadPortfolioData('trades');
@@ -2158,7 +2154,7 @@ class StockDashboard {
                 ? buyFlows
                 : (costBasisCAD > 0 ? [{ date: firstBuyDate, amountCAD: -costBasisCAD }] : []);
 
-            if (irrBuyFlows.length > 0) {
+            if (irrBuyFlows.length > 0 && currentValueCAD != null) {
                 const terminal = { date: now, amountCAD: currentValueCAD };
 
                 const priceFlows = [...irrBuyFlows, ...sellFlows, terminal]
@@ -2252,14 +2248,14 @@ class StockDashboard {
             return `<div class="pos-section"><div class="pos-section-label">${label}</div><div class="pos-section-col">${content}</div></div>`;
         };
 
-        const totalReturnPct = costBasisCAD > 0 && totalDividendsCAD > 0
+        const totalReturnPct = costBasisCAD != null && costBasisCAD > 0 && totalDividendsCAD > 0 && totalPnlCAD != null
             ? ((totalPnlCAD + totalDividendsCAD) / costBasisCAD) * 100 : null;
 
         const lt1yr = yearsHeld !== null && yearsHeld < 1
             ? rowStat('', '< 1 yr', 'pos-stat-stale') : '';
 
         const returnsCol = colSection('Returns', [
-            rowStat('Price Return', fmtPct(priceReturnPct), sign(priceReturnPct)),
+            priceReturnPct != null ? rowStat('Price Return', fmtPct(priceReturnPct), sign(priceReturnPct)) : '',
             totalDividendsCAD > 0 ? rowStat('Total Dividends', fmtCAD(totalDividendsCAD), 'pos-stat-pos') : '',
             totalReturnPct != null ? rowStat('Total Return', fmtPct(totalReturnPct), sign(totalReturnPct)) : '',
         ]);
@@ -2285,15 +2281,20 @@ class StockDashboard {
             wdTotal != null ? rowStat('Total', fmtPct(wdTotal), sign(wdTotal)) : '',
         ]);
 
+        const noPositionNote = !pos
+            ? `<p class="pos-message pos-message-warn">Not in current positions — showing trade history only</p>`
+            : '';
+
         statsDiv.innerHTML = [
+            noPositionNote,
             factsSection([
-                stat('Shares Held', fmtQty(qty)),
-                stat('Portfolio Weight', portfolioPct.toFixed(2) + '%'),
-                stat('Cost Basis', fmtCAD(costBasisCAD)),
-                stat('Current Value', fmtCAD(currentValueCAD), usingLatest ? '' : 'pos-stat-stale'),
+                qty != null     ? stat('Shares Held',      fmtQty(qty)) : '',
+                portfolioPct != null ? stat('Portfolio Weight', portfolioPct.toFixed(2) + '%') : '',
+                costBasisCAD != null ? stat('Cost Basis',    fmtCAD(costBasisCAD)) : '',
+                currentValueCAD != null ? stat('Current Value', fmtCAD(currentValueCAD), usingLatest ? '' : 'pos-stat-stale') : '',
                 firstBuyDate ? stat('Held Since', firstBuyDate.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' })) : '',
                 yearsHeld != null ? stat('Years Held', yearsHeld.toFixed(1) + 'y') : '',
-                stat('Total P&L', (totalPnlCAD >= 0 ? '+' : '') + fmtCAD(totalPnlCAD), sign(totalPnlCAD)),
+                totalPnlCAD != null ? stat('Total P&L', (totalPnlCAD >= 0 ? '+' : '') + fmtCAD(totalPnlCAD), sign(totalPnlCAD)) : '',
             ]),
             [returnsCol, irrCol, cagrCol, wdCol].some(Boolean)
                 ? `<div class="pos-sections-row">${returnsCol}${irrCol}${cagrCol}${wdCol}</div>`
@@ -3371,24 +3372,25 @@ class StockDashboard {
         const dropdown = graphCard.querySelector('.ticker-dropdown');
         const tickerList = graphCard.querySelector('.ticker-list');
 
-        // Get unique tickers: positions source for deep-dive, trades source for analysis graphs
+        // Get unique tickers — always union of positions + trades so both cards see the same set.
+        // Position Deep Dive needs positions for cost/qty data, but stocks only in trades (fully
+        // sold) should still be selectable and show what can be derived from trade history alone.
         const tickers = new Set();
-        if (graphId === 'position-deep-dive') {
+        {
             const positionsData = this.loadPortfolioData('positions');
             if (positionsData) {
                 positionsData.forEach(p => {
                     if (p.symbol && !this.portfolioExcludedSymbols.has(p.symbol.toUpperCase())) {
-                        tickers.add(p.symbol);
+                        tickers.add(p.symbol.toUpperCase());
                     }
                 });
             }
-        } else {
             const tradesData = this.loadPortfolioData('trades');
             if (tradesData) {
                 tradesData.forEach(trade => {
                     if (trade.symbol && trade.type?.toLowerCase() !== 'dividend' &&
                         !this.portfolioExcludedSymbols.has(trade.symbol.toUpperCase())) {
-                        tickers.add(trade.symbol);
+                        tickers.add(trade.symbol.toUpperCase());
                     }
                 });
             }
@@ -3505,7 +3507,7 @@ class StockDashboard {
         const priceData = {}; // {price: {buys: quantity, sells: quantity}}
 
         tradesData.forEach(trade => {
-            if (trade.symbol !== ticker) return;
+            if (trade.symbol?.toUpperCase() !== ticker?.toUpperCase()) return;
 
             const type = trade.type?.toLowerCase();
             if (type === 'dividend') return;
@@ -3676,7 +3678,7 @@ class StockDashboard {
         let firstTradeDate = null;
 
         tradesData.forEach(trade => {
-            if (trade.symbol !== ticker) return;
+            if (trade.symbol?.toUpperCase() !== ticker?.toUpperCase()) return;
 
             const type = trade.type?.toLowerCase();
             if (type === 'dividend') return;
@@ -6078,6 +6080,7 @@ class StockDashboard {
                 </div>
                 <span class="header-change"></span>
                 <span class="header-pe"></span>
+                <div class="header-ratings"></div>
                 <button class="remove-btn" onclick="dashboard.removeFromWatchlist('${symbol}')">×</button>
             </div>
             <div class="collapsed-summary">
@@ -6946,6 +6949,14 @@ class StockDashboard {
         if (context === 'watchlist') {
             this.stockDataMap[symbol] = data;
 
+            // Populate header-change for extra-collapsed single-row display
+            const headerChange = card.querySelector('.header-change');
+            if (headerChange) {
+                const arrow = data.isPositive ? '▲' : '▼';
+                headerChange.textContent = `${arrow} ${data.dayChangePercent}%`;
+                headerChange.className = `header-change ${data.isPositive ? 'positive' : 'negative'}`;
+            }
+
             // Populate collapsed summary metrics
             const csMetrics = card.querySelector('.cs-metrics');
             if (csMetrics) {
@@ -7024,7 +7035,10 @@ class StockDashboard {
         }
         const csRatings = card.querySelector('.cs-ratings');
         if (csRatings) {
-            csRatings.innerHTML = '<div class="cs-ratings-loading"><span></span><span></span><span></span></div>';
+            const loadingHtml = '<div class="cs-ratings-loading"><span></span><span></span><span></span></div>';
+            csRatings.innerHTML = loadingHtml;
+            const headerRatings = card.querySelector('.header-ratings');
+            if (headerRatings) headerRatings.innerHTML = loadingHtml;
         }
 
         const d = this.stockDataMap[symbol];
@@ -7136,7 +7150,10 @@ class StockDashboard {
             }
             const csRatings = card.querySelector('.cs-ratings');
             if (csRatings) {
-                csRatings.innerHTML = '<div class="cs-ratings-loading"><span></span><span></span><span></span></div>';
+                const loadingHtml = '<div class="cs-ratings-loading"><span></span><span></span><span></span></div>';
+                csRatings.innerHTML = loadingHtml;
+                const headerRatings = card.querySelector('.header-ratings');
+                if (headerRatings) headerRatings.innerHTML = loadingHtml;
             }
         });
 
@@ -7269,13 +7286,16 @@ class StockDashboard {
         // Collapsed summary ratings — compact squares with single letter + verdict
         const csRatings = card.querySelector('.cs-ratings');
         if (csRatings) {
-            csRatings.innerHTML = `
+            const ratingsHtml = `
                 <div class="cs-verdict-signal ${verdict}">${label}</div>
                 <span class="cs-sq valuation-${analysis.valuation_rating || 'mid'}" title="Valuation: ${analysis.valuation_rating || '–'}">V</span>
                 <span class="cs-sq fundamentals-${analysis.fundamentals_rating || 'mid'}" title="Fundamentals: ${analysis.fundamentals_rating || '–'}">F</span>
                 <span class="cs-sq fit-${analysis.portfolio_fit_rating || 'mid'}" title="Portfolio fit: ${analysis.portfolio_fit_rating || '–'}">P</span>
                 <span class="cs-sq longterm-${analysis.long_term_rating || 'mid'}" title="Long term: ${analysis.long_term_rating || '–'}">L</span>
             `;
+            csRatings.innerHTML = ratingsHtml;
+            const headerRatings = card.querySelector('.header-ratings');
+            if (headerRatings) headerRatings.innerHTML = ratingsHtml;
         }
 
         // ai-description (mobile only — desktop hides this via CSS, ai-section is used there)

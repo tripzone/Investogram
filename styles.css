@@ -1229,6 +1229,14 @@ h1 {
     padding: 20px;
     text-align: center;
 }
+.pos-message-warn {
+    color: #a07840;
+    background: rgba(160,120,64,0.08);
+    border-radius: 4px;
+    padding: 8px 14px;
+    margin: 8px 12px 0;
+    text-align: left;
+}
 
 @media (max-width: 768px) {
     .pos-section {
@@ -1542,7 +1550,13 @@ button:active {
     white-space: nowrap;
 }
 
-/* Watchlist extra-collapsed: show header-change, header-pe, and cs-ratings only */
+.header-ratings {
+    display: none;
+    align-items: center;
+    gap: 4px;
+}
+
+/* Watchlist extra-collapsed: single row — ticker | daily% | PE | ratings | × */
 #watchlistGrid .stock-card.extra-collapsed .header-change {
     display: flex;
     align-items: center;
@@ -1550,6 +1564,12 @@ button:active {
 
 #watchlistGrid .stock-card.extra-collapsed .header-pe {
     display: inline;
+}
+
+#watchlistGrid .stock-card.extra-collapsed .header-ratings {
+    display: flex;
+    align-items: center;
+    gap: 4px;
 }
 
 #watchlistGrid .stock-card.extra-collapsed .stock-symbol {
@@ -1560,7 +1580,7 @@ button:active {
 }
 
 #watchlistGrid .stock-card.extra-collapsed .stock-header {
-    margin-bottom: 6px;
+    margin-bottom: 0;
     justify-content: flex-start;
     gap: 8px;
 }
@@ -1570,12 +1590,7 @@ button:active {
 }
 
 #watchlistGrid .stock-card.extra-collapsed .collapsed-summary {
-    display: flex;
-    padding: 0 0 0 88px;
-}
-
-#watchlistGrid .stock-card.extra-collapsed .cs-metrics {
-    display: none;
+    display: none !important;
 }
 
 /* Collapsed summary: shown only when card is collapsed */
