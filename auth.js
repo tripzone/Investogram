@@ -46,6 +46,14 @@ async function pullFromServer() {
     const token = await getAuthToken();
     if (!token) return;
 
+    // Flush any pending push first so the server has the latest local changes
+    // before we pull — otherwise deleted/added items get overwritten by stale server data.
+    if (syncTimer) {
+        clearTimeout(syncTimer);
+        syncTimer = null;
+        await pushToServer();
+    }
+
     // Snapshot guest-session data before server overwrites it
     const guestStocks = JSON.parse(localStorage.getItem('stock_list') || '[]');
     const guestWatchlist = JSON.parse(localStorage.getItem('watchlist') || '[]');

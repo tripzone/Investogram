@@ -1219,10 +1219,18 @@ class StockDashboard {
 
             let modeRow = '';
             if (isPerformanceGraph) {
+                const hasDividends = (() => {
+                    const t = this.loadPortfolioData('trades');
+                    return t?.some(r => r.type?.toLowerCase() === 'dividend') ?? false;
+                })();
                 modeRow = `
                     <div class="graph-header-mode">
                         <button class="mode-btn active" data-mode="twr">TWR</button>
                         <button class="mode-btn" data-mode="sp-equivalent">S&P Equiv.</button>
+                        <button class="div-toggle-btn" ${hasDividends ? '' : 'disabled'}
+                                title="${hasDividends ? 'Include dividends: adds portfolio dividend income and switches benchmark to S&P 500 Total Return' : 'No dividend rows found in trades CSV'}">
+                            Incl. Div
+                        </button>
                         <div class="graph-info-tooltip">
                             <span class="graph-info-icon">ⓘ</span>
                             <div class="graph-info-popover">${combinedInfoContent}</div>
@@ -1309,8 +1317,8 @@ class StockDashboard {
                 </div>
                 ${isPositionDeepDive ? `
                 <div class="graph-card-body position-deep-dive-body">
-                    <div class="position-stats-body"></div>
-                    <canvas id="${canvasId}"></canvas>
+                    <div class="position-stats-body" id="${canvasId}"></div>
+                    <canvas id="${canvasId}-pricechart" class="pos-price-chart"></canvas>
                 </div>
                 ` : `
                 <div class="graph-card-body">
@@ -1373,15 +1381,16 @@ class StockDashboard {
                 const renderWithActiveState = () => {
                     const mode = graphCard.querySelector('.mode-btn.active')?.dataset.mode || 'twr';
                     const timeframe = graphCard.querySelector('.timeframe-btn.active')?.dataset.timeframe || '1y';
+                    const includeDivs = graphCard.querySelector('.div-toggle-btn')?.classList.contains('active') ?? false;
                     const useDaily = SHORT_TERM_TFS.has(timeframe);
                     if (mode === 'sp-equivalent') {
                         useDaily
-                            ? this.renderSPEquivalentPerformance(canvasId, timeframe)
-                            : this.renderSPEquivalentPerformanceWeekly(canvasId, timeframe);
+                            ? this.renderSPEquivalentPerformance(canvasId, timeframe, includeDivs)
+                            : this.renderSPEquivalentPerformanceWeekly(canvasId, timeframe, includeDivs);
                     } else {
                         useDaily
-                            ? this.renderPortfolioPerformance(canvasId, timeframe)
-                            : this.renderPortfolioPerformanceWeekly(canvasId, timeframe);
+                            ? this.renderPortfolioPerformance(canvasId, timeframe, includeDivs)
+                            : this.renderPortfolioPerformanceWeekly(canvasId, timeframe, includeDivs);
                     }
                 };
 
@@ -1398,6 +1407,15 @@ class StockDashboard {
                     btn.classList.add('active');
                     renderWithActiveState();
                 }));
+
+                const divToggleBtn = graphCard.querySelector('.div-toggle-btn');
+                if (divToggleBtn && !divToggleBtn.disabled) {
+                    divToggleBtn.addEventListener('click', (e) => {
+                        e.stopPropagation();
+                        divToggleBtn.classList.toggle('active');
+                        renderWithActiveState();
+                    });
+                }
             }
 
             // Asset allocation: mode listener (All Assets + category columns)
@@ -2003,18 +2021,17 @@ class StockDashboard {
     }
 
     async renderPositionDeepDive(canvasId, symbol) {
-        const existingChart = this.portfolioCharts.get(canvasId);
-        if (existingChart) { existingChart.destroy(); this.portfolioCharts.delete(canvasId); }
+        const statsDiv = document.getElementById(canvasId);
+        if (!statsDiv) return;
 
-        const canvas = document.getElementById(canvasId);
-        if (!canvas) return;
+        // Destroy previous price chart if it exists
+        const existingPriceChart = this.portfolioCharts.get(canvasId + '-pricechart');
+        if (existingPriceChart) { existingPriceChart.destroy(); this.portfolioCharts.delete(canvasId + '-pricechart'); }
 
-        const statsDiv = canvas.closest('.graph-card-body')?.querySelector('.position-stats-body');
-        const clearStats = () => { if (statsDiv) statsDiv.innerHTML = ''; };
+        const showMsg = msg => { statsDiv.innerHTML = `<p class="pos-message">${msg}</p>`; };
 
         if (!symbol) {
-            clearStats();
-            this.showGraphMessage(canvas, 'Select a stock to analyze');
+            showMsg('Select a stock to analyze');
             return;
         }
 
@@ -2023,15 +2040,13 @@ class StockDashboard {
             ? rawPositions.filter(p => !this.portfolioExcludedSymbols.has(p.symbol?.toUpperCase()))
             : null;
         if (!positions || positions.length === 0) {
-            clearStats();
-            this.showGraphMessage(canvas, 'No positions data available');
+            showMsg('No positions data available');
             return;
         }
 
         const pos = positions.find(p => p.symbol?.toUpperCase() === symbol.toUpperCase());
         if (!pos) {
-            clearStats();
-            this.showGraphMessage(canvas, `${symbol} not found in positions`);
+            showMsg(`${symbol} not found in positions`);
             return;
         }
 
@@ -2067,129 +2082,386 @@ class StockDashboard {
         const priceReturnPct = avgEntry > 0 ? ((currentPrice - avgEntry) / avgEntry) * 100 : 0;
         const totalPnlCAD = currentValueCAD - costBasisCAD;
 
-        // ── Trades: first buy date + dividends ──
+        // ── Trades: cash flows + dividends ──
         const trades = this.loadPortfolioData('trades');
         let firstBuyDate = null;
         let totalDividendsCAD = 0;
+        const buyFlows = [], sellFlows = [], divFlows = [];
 
-        if (trades) {
-            const sym = symbol.toUpperCase();
-            const symTrades = trades.filter(t => t.symbol?.toUpperCase() === sym);
+        // Returns the absolute CAD amount for a trade row, or null if unparseable/zero.
+        const tradeAmt = t => {
+            let v = NaN;
+            if (t.net_amount  != null && t.net_amount  !== '') v = parseFloat(t.net_amount);
+            else if (t.amount != null && t.amount !== '')      v = parseFloat(t.amount);
+            else if (t.value  != null && t.value  !== '')      v = parseFloat(t.value);
+            else if (t.total  != null && t.total  !== '')      v = parseFloat(t.total);
+            else if (t.total_cost != null && t.total_cost !== '') v = parseFloat(t.total_cost);
+            else if (t.quantity && t.price) v = parseFloat(t.quantity) * parseFloat(t.price);
+            if (isNaN(v) || v === 0) return null;
+            const c = t.currency || currency;
+            return Math.abs(c === 'USD' ? v * usdToCad : v);
+        };
 
-            // First buy
-            const buys = symTrades
-                .filter(t => { const tp = t.type?.toLowerCase(); return tp === 'buy' || tp === 'trade' || tp === 'liquidation'; })
-                .filter(t => !isNaN(new Date(t.transaction_date).getTime()))
-                .sort((a, b) => new Date(a.transaction_date) - new Date(b.transaction_date));
-            if (buys.length > 0) firstBuyDate = new Date(buys[0].transaction_date);
+        const symTrades = trades
+            ? trades.filter(t => t.symbol?.toUpperCase() === symbol.toUpperCase())
+            : [];
 
-            // Total dividends
-            symTrades.filter(t => t.type?.toLowerCase() === 'dividend').forEach(t => {
-                let amt = 0;
-                if (t.net_amount)    amt = parseFloat(t.net_amount);
-                else if (t.amount)   amt = parseFloat(t.amount);
-                else if (t.value)    amt = parseFloat(t.value);
-                else if (t.total)    amt = parseFloat(t.total);
-                else if (t.total_cost) amt = parseFloat(t.total_cost);
-                else if (t.quantity && t.price) amt = parseFloat(t.quantity) * parseFloat(t.price);
-                if (!isNaN(amt) && amt !== 0) {
-                    totalDividendsCAD += (t.currency || currency) === 'USD' ? amt * usdToCad : amt;
+        if (symTrades.length > 0) {
+            const sym = symbol.toUpperCase(); // kept for symmetry, unused below
+
+            symTrades.forEach(t => {
+                const tp = t.type?.toLowerCase();
+                const date = new Date(t.transaction_date);
+                if (isNaN(date.getTime())) return;
+
+                // For brokerages that use type='trade' for both buys and sells,
+                // distinguish by quantity sign: positive = buy, negative = sell.
+                const rawQty = parseFloat(t.quantity ?? t.units ?? t.shares ?? t.qty ?? 0);
+                const isBuy  = tp === 'buy'  || (tp === 'trade' && rawQty >= 0);
+                const isSell = tp === 'sell' || (tp === 'trade' && rawQty < 0);
+
+                if (isBuy) {
+                    if (!firstBuyDate || date < firstBuyDate) firstBuyDate = date;
+                    const amt = tradeAmt(t);
+                    if (amt != null) buyFlows.push({ date, amountCAD: -amt });
+                } else if (isSell) {
+                    const amt = tradeAmt(t);
+                    if (amt != null) sellFlows.push({ date, amountCAD: +amt });
+                } else if (tp === 'dividend') {
+                    const amt = tradeAmt(t);
+                    if (amt != null) {
+                        totalDividendsCAD += amt;
+                        divFlows.push({ date, amountCAD: +amt });
+                    }
                 }
             });
         }
+        const firstBuyDateStr = firstBuyDate ? firstBuyDate.toISOString().slice(0, 10) : null;
 
-        // ── Annualized returns ──
+        // ── Annualized returns via Money-Weighted Return (IRR) ──
+        // IRR is the true personal rate of return: it accounts for the exact timing of every
+        // buy, sell, and dividend. With partial sells, the result reflects the full investment
+        // history on this ticker — not just the current holding — which is the honest picture.
+        // Per CFA GIPS, annualized returns are not shown for holding periods under one year.
         const now = new Date();
         let yearsHeld = null, annPriceReturn = null, annDivYield = null, annTotalReturn = null;
+
         if (firstBuyDate) {
             yearsHeld = (now - firstBuyDate) / (365.25 * 24 * 60 * 60 * 1000);
-            if (yearsHeld > 0 && avgEntry > 0 && currentPrice > 0) {
-                annPriceReturn = (Math.pow(currentPrice / avgEntry, 1 / yearsHeld) - 1) * 100;
-                if (costBasisCAD > 0) {
-                    annDivYield = (totalDividendsCAD / costBasisCAD / yearsHeld) * 100;
-                    const totalReturnFrac = (totalPnlCAD + totalDividendsCAD) / costBasisCAD;
-                    annTotalReturn = (Math.pow(1 + totalReturnFrac, 1 / yearsHeld) - 1) * 100;
+        }
+
+        if (yearsHeld !== null && yearsHeld >= 1) {
+            // If trades CSV has no buy amounts, synthesize a single buy at firstBuyDate
+            // using the positions cost basis — equivalent to CAGR as a fallback.
+            const irrBuyFlows = buyFlows.length > 0
+                ? buyFlows
+                : (costBasisCAD > 0 ? [{ date: firstBuyDate, amountCAD: -costBasisCAD }] : []);
+
+            if (irrBuyFlows.length > 0) {
+                const terminal = { date: now, amountCAD: currentValueCAD };
+
+                const priceFlows = [...irrBuyFlows, ...sellFlows, terminal]
+                    .sort((a, b) => a.date - b.date);
+                const totalFlows = [...irrBuyFlows, ...sellFlows, ...divFlows, terminal]
+                    .sort((a, b) => a.date - b.date);
+
+                const solveIRR = flows => {
+                    if (flows.length < 2) return null;
+                    const t0 = flows[0].date.getTime();
+                    const fs = flows.map(f => ({
+                        t: (f.date.getTime() - t0) / (365.25 * 24 * 60 * 60 * 1000),
+                        v: f.amountCAD,
+                    }));
+                    const npv  = r => fs.reduce((s, f) => s + f.v / Math.pow(1 + r, f.t), 0);
+                    const dnpv = r => fs.reduce((s, f) => s - f.t * f.v / Math.pow(1 + r, f.t + 1), 0);
+                    let r = 0.1;
+                    for (let i = 0; i < 200; i++) {
+                        const fn = npv(r), dfn = dnpv(r);
+                        if (Math.abs(dfn) < 1e-14) break;
+                        const rn = r - fn / dfn;
+                        if (rn < -0.9999) { r = -0.5; continue; }
+                        if (Math.abs(rn - r) < 1e-10) return rn;
+                        r = rn;
+                    }
+                    return null;
+                };
+
+                const priceIRR = solveIRR(priceFlows);
+                const totalIRR = solveIRR(totalFlows);
+
+                if (priceIRR !== null) annPriceReturn = priceIRR * 100;
+                if (totalIRR !== null) annTotalReturn = totalIRR * 100;
+                if (costBasisCAD > 0 && totalDividendsCAD > 0) {
+                    annDivYield = (Math.pow(1 + totalDividendsCAD / costBasisCAD, 1 / yearsHeld) - 1) * 100;
                 }
             }
         }
 
-        // ── Stats HTML ──
+        // ── CAGR (current position cost basis, yearsHeld from first buy) ──
+        let cagrPrice = null, cagrTotal = null, cagrDiv = null;
+        if (yearsHeld !== null && yearsHeld >= 1 && costBasisCAD > 0) {
+            cagrPrice = (Math.pow(currentValueCAD / costBasisCAD, 1 / yearsHeld) - 1) * 100;
+            if (totalDividendsCAD > 0) {
+                cagrTotal = (Math.pow((currentValueCAD + totalDividendsCAD) / costBasisCAD, 1 / yearsHeld) - 1) * 100;
+                cagrDiv   = (Math.pow(1 + totalDividendsCAD / costBasisCAD, 1 / yearsHeld) - 1) * 100;
+            }
+        }
+
+        // ── Weighted-duration CAGR (effective holding period weighted by cost of each buy) ──
+        let wdPrice = null, wdTotal = null, wdDiv = null;
+        if (buyFlows.length > 0 && costBasisCAD > 0) {
+            const totalBuyCost = buyFlows.reduce((s, f) => s + Math.abs(f.amountCAD), 0);
+            if (totalBuyCost > 0) {
+                const weightedYears = buyFlows.reduce((s, f) => {
+                    const yrs = (now - f.date) / (365.25 * 24 * 60 * 60 * 1000);
+                    return s + Math.abs(f.amountCAD) * yrs;
+                }, 0) / totalBuyCost;
+                if (weightedYears >= 1) {
+                    wdPrice = (Math.pow(currentValueCAD / costBasisCAD, 1 / weightedYears) - 1) * 100;
+                    if (totalDividendsCAD > 0) {
+                        wdTotal = (Math.pow((currentValueCAD + totalDividendsCAD) / costBasisCAD, 1 / weightedYears) - 1) * 100;
+                        wdDiv   = (Math.pow(1 + totalDividendsCAD / costBasisCAD, 1 / weightedYears) - 1) * 100;
+                    }
+                }
+            }
+        }
+
+        // ── Layout: facts row + four-column returns/annualized ──
         const fmtCAD = v => `CAD $${Math.abs(v).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
         const fmtPct = v => v != null ? `${v >= 0 ? '+' : ''}${v.toFixed(2)}%` : '—';
         const fmtQty = v => v % 1 === 0 ? v.toLocaleString() : v.toLocaleString('en-US', { maximumFractionDigits: 4 });
         const sign = v => v >= 0 ? 'pos-stat-pos' : 'pos-stat-neg';
 
-        const statItem = (label, value, cls = '') =>
+        // Horizontal pill: label above, value below — used in the facts row
+        const stat = (label, value, cls = '') =>
             `<div class="pos-stat"><span class="pos-stat-label">${label}</span><span class="pos-stat-value ${cls}">${value}</span></div>`;
 
-        const statsHTML = [
-            statItem('Shares Held', fmtQty(qty)),
-            statItem('Portfolio Weight', portfolioPct.toFixed(2) + '%'),
-            statItem('Cost Basis', fmtCAD(costBasisCAD)),
-            statItem('Current Value', fmtCAD(currentValueCAD), usingLatest ? '' : 'pos-stat-stale'),
-            statItem('Total P&L', (totalPnlCAD >= 0 ? '+' : '-') + fmtCAD(totalPnlCAD), sign(totalPnlCAD)),
-            statItem('Price Return', fmtPct(priceReturnPct), sign(priceReturnPct)),
-            annPriceReturn != null ? statItem('Ann. Price Return', fmtPct(annPriceReturn), sign(annPriceReturn)) : '',
-            totalDividendsCAD > 0 ? statItem('Total Dividends', fmtCAD(totalDividendsCAD), 'pos-stat-pos') : '',
-            annDivYield != null && totalDividendsCAD > 0 ? statItem('Ann. Div Yield', fmtPct(annDivYield), 'pos-stat-pos') : '',
-            annTotalReturn != null ? statItem('Ann. Total Return', fmtPct(annTotalReturn), sign(annTotalReturn)) : '',
-            firstBuyDate ? statItem('Held Since', firstBuyDate.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' })) : '',
-            yearsHeld != null ? statItem('Years Held', yearsHeld.toFixed(1) + 'y') : '',
+        // Horizontal row: label on left, value on right — used in the two column sections
+        const rowStat = (label, value, cls = '') =>
+            `<div class="pos-stat-row"><span class="pos-stat-label">${label}</span><span class="pos-stat-value ${cls}">${value}</span></div>`;
+
+        const factsSection = (items) => {
+            const content = items.filter(Boolean).join('');
+            return `<div class="pos-section pos-section-facts"><div class="pos-section-stats">${content}</div></div>`;
+        };
+
+        const colSection = (label, items) => {
+            const content = items.filter(Boolean).join('');
+            if (!content) return '';
+            return `<div class="pos-section"><div class="pos-section-label">${label}</div><div class="pos-section-col">${content}</div></div>`;
+        };
+
+        const totalReturnPct = costBasisCAD > 0 && totalDividendsCAD > 0
+            ? ((totalPnlCAD + totalDividendsCAD) / costBasisCAD) * 100 : null;
+
+        const lt1yr = yearsHeld !== null && yearsHeld < 1
+            ? rowStat('', '< 1 yr', 'pos-stat-stale') : '';
+
+        const returnsCol = colSection('Returns', [
+            rowStat('Price Return', fmtPct(priceReturnPct), sign(priceReturnPct)),
+            totalDividendsCAD > 0 ? rowStat('Total Dividends', fmtCAD(totalDividendsCAD), 'pos-stat-pos') : '',
+            totalReturnPct != null ? rowStat('Total Return', fmtPct(totalReturnPct), sign(totalReturnPct)) : '',
+        ]);
+
+        const irrCol = colSection('IRR', [
+            lt1yr,
+            annPriceReturn != null ? rowStat('Price', fmtPct(annPriceReturn), sign(annPriceReturn)) : '',
+            annDivYield != null ? rowStat('Div Yield', fmtPct(annDivYield), 'pos-stat-pos') : '',
+            annTotalReturn != null ? rowStat('Total', fmtPct(annTotalReturn), sign(annTotalReturn)) : '',
+        ]);
+
+        const cagrCol = colSection('CAGR', [
+            lt1yr,
+            cagrPrice != null ? rowStat('Price', fmtPct(cagrPrice), sign(cagrPrice)) : '',
+            cagrDiv != null ? rowStat('Div Yield', fmtPct(cagrDiv), 'pos-stat-pos') : '',
+            cagrTotal != null ? rowStat('Total', fmtPct(cagrTotal), sign(cagrTotal)) : '',
+        ]);
+
+        const wdCol = colSection('Wtd. CAGR', [
+            lt1yr,
+            wdPrice != null ? rowStat('Price', fmtPct(wdPrice), sign(wdPrice)) : '',
+            wdDiv != null ? rowStat('Div Yield', fmtPct(wdDiv), 'pos-stat-pos') : '',
+            wdTotal != null ? rowStat('Total', fmtPct(wdTotal), sign(wdTotal)) : '',
+        ]);
+
+        statsDiv.innerHTML = [
+            factsSection([
+                stat('Shares Held', fmtQty(qty)),
+                stat('Portfolio Weight', portfolioPct.toFixed(2) + '%'),
+                stat('Cost Basis', fmtCAD(costBasisCAD)),
+                stat('Current Value', fmtCAD(currentValueCAD), usingLatest ? '' : 'pos-stat-stale'),
+                firstBuyDate ? stat('Held Since', firstBuyDate.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' })) : '',
+                yearsHeld != null ? stat('Years Held', yearsHeld.toFixed(1) + 'y') : '',
+                stat('Total P&L', (totalPnlCAD >= 0 ? '+' : '') + fmtCAD(totalPnlCAD), sign(totalPnlCAD)),
+            ]),
+            [returnsCol, irrCol, cagrCol, wdCol].some(Boolean)
+                ? `<div class="pos-sections-row">${returnsCol}${irrCol}${cagrCol}${wdCol}</div>`
+                : '',
         ].join('');
 
-        if (statsDiv) statsDiv.innerHTML = `<div class="pos-stats-grid">${statsHTML}</div>`;
+        // ── Price history chart ──
+        const chartCanvasEl = document.getElementById(canvasId + '-pricechart');
+        if (chartCanvasEl && firstBuyDateStr) {
+            const interval = yearsHeld >= 2 ? '1mo' : '1wk';
+            const range    = yearsHeld >= 8 ? 'max' : yearsHeld >= 4 ? '10y' : '4y';
 
-        // ── Bar chart: return metrics ──
-        const chartLabels = ['Price\nReturn', 'Div\nReturn', 'Total\nReturn', 'Ann.\nPrice', 'Ann.\nDiv', 'Ann.\nTotal'];
-        const divReturnPct = costBasisCAD > 0 ? (totalDividendsCAD / costBasisCAD) * 100 : 0;
-        const totalReturnPct = costBasisCAD > 0 ? ((totalPnlCAD + totalDividendsCAD) / costBasisCAD) * 100 : priceReturnPct;
-        const chartValues = [
-            priceReturnPct,
-            totalDividendsCAD > 0 ? divReturnPct : null,
-            totalReturnPct,
-            annPriceReturn,
-            annDivYield != null && totalDividendsCAD > 0 ? annDivYield : null,
-            annTotalReturn,
-        ];
-
-        const labels = [], values = [];
-        chartLabels.forEach((l, i) => { if (chartValues[i] != null) { labels.push(l); values.push(chartValues[i]); } });
-
-        if (labels.length === 0 || canvas.offsetWidth === 0) return;
-
-        const chart = new Chart(canvas.getContext('2d'), {
-            type: 'bar',
-            data: {
-                labels,
-                datasets: [{
-                    data: values,
-                    backgroundColor: values.map(v => v >= 0 ? 'rgba(72,187,120,0.7)' : 'rgba(252,129,129,0.7)'),
-                    borderColor:     values.map(v => v >= 0 ? '#48bb78' : '#fc8181'),
-                    borderWidth: 1,
-                    borderRadius: 3,
-                }]
-            },
-            options: {
-                animation: false,
-                responsive: true,
-                maintainAspectRatio: false,
-                plugins: {
-                    legend: { display: false },
-                    tooltip: {
-                        callbacks: { label: ctx => `${ctx.parsed.y >= 0 ? '+' : ''}${ctx.parsed.y.toFixed(2)}%` }
-                    }
-                },
-                scales: {
-                    x: { grid: { color: '#2a2a2a' }, ticks: { color: '#888', font: { size: 10 } } },
-                    y: {
-                        grid: { color: '#2a2a2a' },
-                        ticks: { color: '#888', font: { size: 11 }, callback: v => `${v >= 0 ? '+' : ''}${v.toFixed(1)}%` }
-                    }
-                }
+            // Try stock-card weekly cache first — free hit if user tracks this symbol
+            let priceResult = null;
+            const wkCache = window.stockAPI?.getFromCache(`/api/stock/${symbol.toUpperCase()}?range=4y&interval=1wk`);
+            if (wkCache?.chart?.result?.[0] && interval === '1wk') {
+                priceResult = wkCache.chart.result[0];
             }
-        });
+            if (!priceResult) {
+                try {
+                    const batch = await window.stockAPI.fetchBatch([symbol.toUpperCase()], range, interval);
+                    priceResult = batch[symbol.toUpperCase()]?.chart?.result?.[0];
+                } catch (e) { console.error('[DeepDive] price fetch failed', e); }
+            }
 
-        this.portfolioCharts.set(canvasId, chart);
+            if (priceResult) {
+                const timestamps = priceResult.timestamp || [];
+                const closes     = priceResult.indicators?.quote?.[0]?.close || [];
+
+                // Filter and sort price points from firstBuyDate onwards
+                const pricePoints = [];
+                timestamps.forEach((ts, i) => {
+                    if (closes[i] == null) return;
+                    const d = new Date(ts * 1000).toISOString().slice(0, 10);
+                    if (d >= firstBuyDateStr) pricePoints.push({ date: d, price: closes[i] });
+                });
+                pricePoints.sort((a, b) => (a.date < b.date ? -1 : 1));
+
+                const periodDates = pricePoints.map(p => p.date);
+                const buyBars  = new Array(periodDates.length).fill(0);
+                const sellBars = new Array(periodDates.length).fill(0);
+
+                // Snap each trade to the first period date >= the trade date
+                const chartTrades = symTrades
+                    .filter(t => {
+                        const tp = t.type?.toLowerCase();
+                        return t.transaction_date >= firstBuyDateStr
+                            && (tp === 'buy' || tp === 'trade' || tp === 'sell');
+                    })
+                    .sort((a, b) => (a.transaction_date < b.transaction_date ? -1 : 1));
+
+                for (const t of chartTrades) {
+                    const rawQty = t.quantity ?? t.units ?? t.shares ?? t.qty ?? t.num_shares ?? null;
+                    const rawNum = rawQty != null ? parseFloat(rawQty) : 0;
+                    let qty = Math.abs(rawNum);
+                    // Fallback: derive from dollar amount ÷ price
+                    if (!qty && t.price) {
+                        const amt = parseFloat(t.net_amount ?? t.amount ?? t.value ?? t.total ?? 0);
+                        const px  = parseFloat(t.price);
+                        if (amt && px) qty = Math.abs(amt / px);
+                    }
+                    if (!qty) continue;
+                    const tp  = t.type?.toLowerCase();
+                    // Use quantity sign to distinguish buys/sells for 'trade' type
+                    const isBuy  = tp === 'buy'  || (tp === 'trade' && rawNum >= 0);
+                    const isSell = tp === 'sell' || (tp === 'trade' && rawNum < 0);
+                    let snapIdx = periodDates.findIndex(d => d >= t.transaction_date);
+                    if (snapIdx === -1) snapIdx = periodDates.length - 1;
+                    if (isBuy)       buyBars[snapIdx]  += qty;
+                    else if (isSell) sellBars[snapIdx] += qty;
+                }
+
+                const maxBuyBar = Math.max(...buyBars, 1);
+                const maxSellBar = Math.max(...sellBars, 1);
+
+                // Format x-axis labels: show month+year for monthly, just date for weekly
+                const xLabels = periodDates.map(d => {
+                    const dt = new Date(d + 'T12:00:00Z');
+                    return interval === '1mo'
+                        ? dt.toLocaleDateString('en-US', { month: 'short', year: '2-digit' })
+                        : dt.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+                });
+
+                const priceChart = new Chart(chartCanvasEl.getContext('2d'), {
+                    type: 'bar',
+                    data: {
+                        labels: xLabels,
+                        datasets: [
+                            {
+                                type: 'line',
+                                label: 'Price',
+                                data: pricePoints.map(p => p.price),
+                                yAxisID: 'yPrice',
+                                borderColor: '#4a9eda',
+                                borderWidth: 1.5,
+                                pointRadius: 0,
+                                fill: true,
+                                backgroundColor: 'rgba(74,158,218,0.06)',
+                                tension: 0.1,
+                                order: 1,
+                            },
+                            {
+                                type: 'bar',
+                                label: 'Buys',
+                                data: buyBars.map(v => v > 0 ? v : null),
+                                yAxisID: 'yVol',
+                                backgroundColor: 'rgba(72,187,120,0.7)',
+                                borderWidth: 0,
+                                barPercentage: 1.0,
+                                categoryPercentage: 1.0,
+                                order: 2,
+                            },
+                            {
+                                type: 'bar',
+                                label: 'Sells',
+                                data: sellBars.map(v => v > 0 ? -v : null),
+                                yAxisID: 'yVol',
+                                backgroundColor: 'rgba(252,129,129,0.7)',
+                                borderWidth: 0,
+                                barPercentage: 1.0,
+                                categoryPercentage: 1.0,
+                                order: 2,
+                            },
+                        ]
+                    },
+                    options: {
+                        animation: false,
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        interaction: { mode: 'index', intersect: false },
+                        plugins: {
+                            legend: { display: false },
+                            tooltip: {
+                                callbacks: {
+                                    label: ctx => {
+                                        if (ctx.dataset.label === 'Price') return ` $${ctx.parsed.y.toFixed(2)}`;
+                                        const v = Math.abs(ctx.parsed.y);
+                                        if (ctx.dataset.label === 'Buys'  && v > 0) return ` Bought ${v} shares`;
+                                        if (ctx.dataset.label === 'Sells' && v > 0) return ` Sold ${v} shares`;
+                                        return null;
+                                    },
+                                    filter: item => item.parsed.y !== 0,
+                                }
+                            }
+                        },
+                        scales: {
+                            x: {
+                                grid: { color: '#1a1a1a' },
+                                ticks: { color: '#555', font: { size: 10 }, maxTicksLimit: 10, maxRotation: 0 },
+                            },
+                            yPrice: {
+                                position: 'left',
+                                grid: { color: '#1a1a1a' },
+                                ticks: { color: '#555', font: { size: 10 }, maxTicksLimit: 5 },
+                            },
+                            yVol: {
+                                position: 'right',
+                                grid: { display: false },
+                                ticks: { display: false },
+                                min: -maxSellBar,
+                                max: maxBuyBar,
+                            },
+                        }
+                    }
+                });
+
+                this.portfolioCharts.set(canvasId + '-pricechart', priceChart);
+            }
+        }
     }
 
     showGraphMessage(canvas, message) {
@@ -3244,13 +3516,11 @@ class StockDashboard {
                 priceData[roundedPrice] = { buys: 0, sells: 0 };
             }
 
-            // Type 'trade' with positive quantity = buy, negative = sell
-            if (type === 'trade' || type === 'buy' || type === 'sell') {
-                if (quantity > 0 || type === 'buy') {
-                    priceData[roundedPrice].buys += Math.abs(quantity);
-                } else {
-                    priceData[roundedPrice].sells += Math.abs(quantity);
-                }
+            // 'buy' always a buy; 'sell' always a sell; 'trade' determined by quantity sign
+            if (type === 'buy' || (type === 'trade' && quantity > 0)) {
+                priceData[roundedPrice].buys += Math.abs(quantity);
+            } else if (type === 'sell' || (type === 'trade' && quantity < 0)) {
+                priceData[roundedPrice].sells += Math.abs(quantity);
             }
         });
 
@@ -3570,7 +3840,57 @@ class StockDashboard {
         this.portfolioCharts.set(canvasId, chart);
     }
 
-    async renderPortfolioPerformance(canvasId, period = '28d') {
+    // Returns {symbol: {date: totalCADAmount}} for all dividend trades.
+    // Used by all performance chart functions when "Incl. Div" is toggled.
+    buildDivMap(rawTrades, usdToCad) {
+        const divMap = {};
+        if (!rawTrades) return divMap;
+        rawTrades.filter(t => t.type?.toLowerCase() === 'dividend').forEach(t => {
+            const sym = t.symbol?.toUpperCase();
+            const date = t.transaction_date;
+            if (!sym || !date) return;
+            let v = NaN;
+            if (t.net_amount != null && t.net_amount !== '')      v = parseFloat(t.net_amount);
+            else if (t.amount != null && t.amount !== '')         v = parseFloat(t.amount);
+            else if (t.value != null && t.value !== '')           v = parseFloat(t.value);
+            else if (t.total != null && t.total !== '')           v = parseFloat(t.total);
+            else if (t.total_cost != null && t.total_cost !== '') v = parseFloat(t.total_cost);
+            else if (t.quantity && t.price) v = parseFloat(t.quantity) * parseFloat(t.price);
+            if (isNaN(v) || v === 0) return;
+            const c = t.currency || 'CAD';
+            const amt = Math.abs(c === 'USD' ? v * usdToCad : v);
+            if (!divMap[sym]) divMap[sym] = {};
+            divMap[sym][date] = (divMap[sym][date] || 0) + amt;
+        });
+        return divMap;
+    }
+
+    // Returns a flat list of dividends sorted by date — used for cursor-based attribution
+    // so dividends on non-trading-days are correctly attributed to the next trading day.
+    buildDivList(rawTrades, usdToCad) {
+        const list = [];
+        if (!rawTrades) return list;
+        rawTrades.filter(t => t.type?.toLowerCase() === 'dividend').forEach(t => {
+            const sym = t.symbol?.toUpperCase();
+            const date = t.transaction_date;
+            if (!sym || !date) return;
+            let v = NaN;
+            if (t.net_amount != null && t.net_amount !== '')      v = parseFloat(t.net_amount);
+            else if (t.amount != null && t.amount !== '')         v = parseFloat(t.amount);
+            else if (t.value != null && t.value !== '')           v = parseFloat(t.value);
+            else if (t.total != null && t.total !== '')           v = parseFloat(t.total);
+            else if (t.total_cost != null && t.total_cost !== '') v = parseFloat(t.total_cost);
+            else if (t.quantity && t.price) v = parseFloat(t.quantity) * parseFloat(t.price);
+            if (isNaN(v) || v === 0) return;
+            const c = t.currency || 'CAD';
+            const amt = Math.abs(c === 'USD' ? v * usdToCad : v);
+            list.push({ date, sym, amt });
+        });
+        list.sort((a, b) => a.date < b.date ? -1 : a.date > b.date ? 1 : 0);
+        return list;
+    }
+
+    async renderPortfolioPerformance(canvasId, period = '28d', includeDividends = false) {
         const rawPositions = this.loadPortfolioData('positions');
         const rawTrades = this.loadPortfolioData('trades');
         const canvas = document.getElementById(canvasId);
@@ -3685,7 +4005,8 @@ class StockDashboard {
         // Fetch 1y/1d once per day and persist in localStorage.
         // All period views (7D→6M) slice this single dataset client-side — no extra Yahoo calls.
         // Historical daily closes never change, so end-of-day expiry is the right TTL.
-        const allSymbols = [...symbolsToFetch, '^GSPC'];
+        // Always fetch ^SP500TR alongside ^GSPC so the dividend toggle switches instantly.
+        const allSymbols = [...symbolsToFetch, '^GSPC', '^SP500TR'];
         const cacheKey = [...allSymbols].sort().join(',');
         const today = new Date().toISOString().slice(0, 10); // YYYY-MM-DD
         const LS_KEY = 'perf_price_cache';
@@ -3783,10 +4104,20 @@ class StockDashboard {
         const effectiveDays = tradingDays.slice(baseIdx);
         const effectiveHoldings = holdingsPerDay.slice(baseIdx);
 
+        // Cursor-based dividend list: handles dividends on non-trading-days by attributing
+        // them to the sub-period (prevDay, currDay] they fall within.
+        const divList = includeDividends
+            ? this.buildDivList(rawTrades, usdToCad)
+                .filter(d => new Set(symbolsToFetch).has(d.sym) && d.date >= effectiveDays[0])
+            : [];
+        let divIdx = 0;
+
         // Time-weighted return via daily chain-linking:
         // Each day's factor = (value of YESTERDAY's holdings at TODAY's prices)
         //                   / (value of YESTERDAY's holdings at YESTERDAY's prices)
         // This strips out capital injections — a buy on day N only starts earning from day N+1.
+        // When includeDividends: dividends in (prevDay, currDay] are added to the numerator,
+        // capturing the total return for that sub-period regardless of payment day.
         const portfolioChanges = [0]; // day 0 always starts at 0%
         let cumulativeFactor = 1.0;
 
@@ -3806,12 +4137,21 @@ class StockDashboard {
                 vCurr += pCurr * qty * fx;
             }
 
+            // Attribute all dividends in (prevDay, currDay] to this sub-period's numerator
+            if (includeDividends) {
+                while (divIdx < divList.length && divList[divIdx].date <= currDay) {
+                    if (divList[divIdx].date > prevDay) vCurr += divList[divIdx].amt;
+                    divIdx++;
+                }
+            }
+
             if (vPrev > 0) cumulativeFactor *= vCurr / vPrev;
             portfolioChanges.push((cumulativeFactor - 1) * 100);
         }
 
-        // S&P 500 normalized from the same base date (simple price return is fine — no cash flows)
-        const sp500Prices = effectiveDays.map(day => priceHistory['^GSPC']?.[day] ?? null);
+        // Benchmark: price-only ^GSPC or total-return ^SP500TR depending on dividend toggle.
+        const benchmarkSym = includeDividends ? '^SP500TR' : '^GSPC';
+        const sp500Prices = effectiveDays.map(day => priceHistory[benchmarkSym]?.[day] ?? null);
         const baseSP500 = sp500Prices[0];
         const sp500Changes = sp500Prices.map(p =>
             baseSP500 > 0 && p != null ? ((p / baseSP500) - 1) * 100 : 0
@@ -3843,7 +4183,7 @@ class StockDashboard {
                         fill: false
                     },
                     {
-                        label: 'S&P 500',
+                        label: includeDividends ? 'S&P 500 TR' : 'S&P 500',
                         data: sp500Changes,
                         borderColor: '#E8A838',
                         backgroundColor: 'rgba(232, 168, 56, 0.08)',
@@ -3924,7 +4264,7 @@ class StockDashboard {
         this.portfolioCharts.set(canvasId, chart);
     }
 
-    async renderPortfolioPerformanceWeekly(canvasId, period = '1y') {
+    async renderPortfolioPerformanceWeekly(canvasId, period = '1y', includeDividends = false) {
         const rawPositions = this.loadPortfolioData('positions');
         const rawTrades = this.loadPortfolioData('trades');
         const canvas = document.getElementById(canvasId);
@@ -4025,7 +4365,7 @@ class StockDashboard {
 
         // Fetch 5y of weekly data — cached once per day.
         // All period views (6M→5Y) slice this single dataset client-side.
-        const allSymbols = [...symbolsToFetch, '^GSPC'];
+        const allSymbols = [...symbolsToFetch, '^GSPC', '^SP500TR'];
         const cacheKey = [...allSymbols].sort().join(',');
         const today = new Date().toISOString().slice(0, 10);
         const LS_KEY = 'perf_weekly_price_cache_10y';
@@ -4121,6 +4461,12 @@ class StockDashboard {
         const effectiveDays = weekDays.slice(baseIdx);
         const effectiveHoldings = holdingsPerWeek.slice(baseIdx);
 
+        const divList = includeDividends
+            ? this.buildDivList(rawTrades, usdToCad)
+                .filter(d => new Set(symbolsToFetch).has(d.sym) && d.date >= effectiveDays[0])
+            : [];
+        let divIdx = 0;
+
         // Time-weighted return via weekly chain-linking
         const portfolioChanges = [0];
         let cumulativeFactor = 1.0;
@@ -4141,12 +4487,20 @@ class StockDashboard {
                 vCurr += pCurr * qty * fx;
             }
 
+            if (includeDividends) {
+                while (divIdx < divList.length && divList[divIdx].date <= currDay) {
+                    if (divList[divIdx].date > prevDay) vCurr += divList[divIdx].amt;
+                    divIdx++;
+                }
+            }
+
             if (vPrev > 0) cumulativeFactor *= vCurr / vPrev;
             portfolioChanges.push((cumulativeFactor - 1) * 100);
         }
 
-        // S&P 500 normalized from the same base date
-        const sp500Prices = effectiveDays.map(day => priceHistory['^GSPC']?.[day] ?? null);
+        // Benchmark: price-only ^GSPC or total-return ^SP500TR depending on dividend toggle.
+        const benchmarkSym = includeDividends ? '^SP500TR' : '^GSPC';
+        const sp500Prices = effectiveDays.map(day => priceHistory[benchmarkSym]?.[day] ?? null);
         const baseSP500 = sp500Prices[0];
         const sp500Changes = sp500Prices.map(p =>
             baseSP500 > 0 && p != null ? ((p / baseSP500) - 1) * 100 : 0
@@ -4189,7 +4543,7 @@ class StockDashboard {
                         fill: false
                     },
                     {
-                        label: 'S&P 500',
+                        label: includeDividends ? 'S&P 500 TR' : 'S&P 500',
                         data: sp500Changes,
                         borderColor: '#E8A838',
                         backgroundColor: 'rgba(232, 168, 56, 0.08)',
@@ -4289,7 +4643,7 @@ class StockDashboard {
     // Industry label: "S&P 500 Equivalent Portfolio" (Sharesight-style opportunity cost)
     // ──────────────────────────────────────────────────────────────────────────
 
-    async renderSPEquivalentPerformance(canvasId, period = '28d') {
+    async renderSPEquivalentPerformance(canvasId, period = '28d', includeDividends = false) {
         const canvas = document.getElementById(canvasId);
         if (!canvas) return;
 
@@ -4394,7 +4748,7 @@ class StockDashboard {
         }
 
         // Reuse same daily cache as TWR chart
-        const allSymbols = [...symbolsToFetch, '^GSPC'];
+        const allSymbols = [...symbolsToFetch, '^GSPC', '^SP500TR'];
         const cacheKey = [...allSymbols].sort().join(',');
         const today = new Date().toISOString().slice(0, 10);
         const LS_KEY = 'perf_price_cache';
@@ -4452,7 +4806,7 @@ class StockDashboard {
 
         // Build sorted date index per symbol for binary-search forward-fill lookups
         const symbolDates = {};
-        for (const sym of [...symbolsToFetch, '^GSPC']) {
+        for (const sym of [...symbolsToFetch, '^GSPC', '^SP500TR']) {
             symbolDates[sym] = Object.keys(priceHistory[sym] || {}).sort();
         }
 
@@ -4482,6 +4836,11 @@ class StockDashboard {
         const effectiveHoldings = holdingsPerDay.slice(baseIdx);
         const periodStart = effectiveDays[0];
 
+        const divList = includeDividends
+            ? this.buildDivList(rawTrades, usdToCad)
+                .filter(d => new Set(symbolsToFetch).has(d.sym) && d.date >= effectiveDays[0])
+            : [];
+
         // Compute actual mark-to-market portfolio value for each day
         const actualValues = effectiveDays.map((day, i) => {
             let v = 0;
@@ -4495,6 +4854,20 @@ class StockDashboard {
             return v;
         });
 
+        // When dividends are included, add cumulative dividends received since period start
+        // to each day's portfolio value. Cursor-based so non-trading-day dividends accumulate
+        // to the next trading day they fall before.
+        if (includeDividends && divList.length > 0) {
+            let divIdx = 0, cumulativeDivs = 0;
+            for (let i = 0; i < effectiveDays.length; i++) {
+                while (divIdx < divList.length && divList[divIdx].date <= effectiveDays[i]) {
+                    cumulativeDivs += divList[divIdx].amt;
+                    divIdx++;
+                }
+                actualValues[i] += cumulativeDivs;
+            }
+        }
+
         const baseActualValue = actualValues[0];
         if (!baseActualValue || baseActualValue <= 0) {
             showError('Could not compute portfolio value at start of period.');
@@ -4506,7 +4879,9 @@ class StockDashboard {
         // S&P portfolio is seeded with the same dollar value as the actual portfolio at period start.
         // Every buy/sell AFTER period start is mirrored into the S&P portfolio with the same dollars.
         // Running netCapital is the denominator — prevents capital injections from inflating returns.
-        const baseSP500Price = getPrice('^GSPC', periodStart);
+        // When dividends enabled, ^SP500TR is used so dividends are also reinvested on the benchmark side.
+        const benchmarkSym = includeDividends ? '^SP500TR' : '^GSPC';
+        const baseSP500Price = getPrice(benchmarkSym, periodStart);
         if (!baseSP500Price || baseSP500Price <= 0) {
             showError('No S&P 500 price data available for this period.');
             return;
@@ -4557,7 +4932,7 @@ class StockDashboard {
                 if (prevDay && t.date <= prevDay) continue;
                 const fx           = t.currency === 'USD' ? usdToCad : 1;
                 const dollarAmount = t.qty * t.price * fx;
-                const spPriceOnDay = getPrice('^GSPC', day);
+                const spPriceOnDay = getPrice(benchmarkSym, day);
                 if (spPriceOnDay && spPriceOnDay > 0) {
                     if (t.isBuy) {
                         spShares  += dollarAmount / spPriceOnDay;
@@ -4569,7 +4944,7 @@ class StockDashboard {
                 }
             }
 
-            const spPrice = getPrice('^GSPC', day);
+            const spPrice = getPrice(benchmarkSym, day);
             spValues.push(spPrice != null ? spShares * spPrice : null);
             netCapitals.push(netCapital);
         }
@@ -4597,7 +4972,7 @@ class StockDashboard {
                 labels,
                 datasets: [
                     {
-                        label: 'Your Portfolio',
+                        label: includeDividends ? 'Portfolio TR' : 'Your Portfolio',
                         data: portfolioChanges,
                         borderColor: '#3D8A9E',
                         backgroundColor: 'rgba(61, 138, 158, 0.08)',
@@ -4608,7 +4983,7 @@ class StockDashboard {
                         fill: false
                     },
                     {
-                        label: 'S&P 500 Equivalent',
+                        label: includeDividends ? 'S&P 500 TR Equiv.' : 'S&P 500 Equivalent',
                         data: spChanges,
                         borderColor: '#E8A838',
                         backgroundColor: 'rgba(232, 168, 56, 0.08)',
@@ -4633,7 +5008,9 @@ class StockDashboard {
                     },
                     subtitle: {
                         display: true,
-                        text: 'Hypothetical: same dollars invested in S&P 500 on each trade date',
+                        text: includeDividends
+                            ? 'Total return: portfolio dividends included · benchmark is S&P 500 Total Return index'
+                            : 'Hypothetical: same dollars invested in S&P 500 on each trade date',
                         color: '#555',
                         font: { size: 10 },
                         padding: { bottom: 6 }
@@ -4686,7 +5063,7 @@ class StockDashboard {
         this.portfolioCharts.set(canvasId, chart);
     }
 
-    async renderSPEquivalentPerformanceWeekly(canvasId, period = '1y') {
+    async renderSPEquivalentPerformanceWeekly(canvasId, period = '1y', includeDividends = false) {
         const canvas = document.getElementById(canvasId);
         if (!canvas) return;
 
@@ -4775,7 +5152,7 @@ class StockDashboard {
         };
 
         // Reuse same weekly cache as TWR weekly chart
-        const allSymbols = [...symbolsToFetch, '^GSPC'];
+        const allSymbols = [...symbolsToFetch, '^GSPC', '^SP500TR'];
         const cacheKey = [...allSymbols].sort().join(',');
         const today = new Date().toISOString().slice(0, 10);
         const LS_KEY = 'perf_weekly_price_cache_10y';
@@ -4832,7 +5209,7 @@ class StockDashboard {
         }
 
         const symbolDates = {};
-        for (const sym of [...symbolsToFetch, '^GSPC']) {
+        for (const sym of [...symbolsToFetch, '^GSPC', '^SP500TR']) {
             symbolDates[sym] = Object.keys(priceHistory[sym] || {}).sort();
         }
 
@@ -4862,6 +5239,11 @@ class StockDashboard {
         const effectiveHoldings = holdingsPerWeek.slice(baseIdx);
         const periodStart = effectiveDays[0];
 
+        const divList = includeDividends
+            ? this.buildDivList(rawTrades, usdToCad)
+                .filter(d => new Set(symbolsToFetch).has(d.sym) && d.date >= effectiveDays[0])
+            : [];
+
         const actualValues = effectiveDays.map((day, i) => {
             let v = 0;
             for (const [sym, qty] of Object.entries(effectiveHoldings[i])) {
@@ -4874,13 +5256,25 @@ class StockDashboard {
             return v;
         });
 
+        if (includeDividends && divList.length > 0) {
+            let divIdx = 0, cumulativeDivs = 0;
+            for (let i = 0; i < effectiveDays.length; i++) {
+                while (divIdx < divList.length && divList[divIdx].date <= effectiveDays[i]) {
+                    cumulativeDivs += divList[divIdx].amt;
+                    divIdx++;
+                }
+                actualValues[i] += cumulativeDivs;
+            }
+        }
+
         const baseActualValue = actualValues[0];
         if (!baseActualValue || baseActualValue <= 0) {
             showError('Could not compute portfolio value at start of period.');
             return;
         }
 
-        const baseSP500Price = getPrice('^GSPC', periodStart);
+        const benchmarkSym = includeDividends ? '^SP500TR' : '^GSPC';
+        const baseSP500Price = getPrice(benchmarkSym, periodStart);
         if (!baseSP500Price || baseSP500Price <= 0) {
             showError('No S&P 500 price data available for this period.');
             return;
@@ -4928,7 +5322,7 @@ class StockDashboard {
                 if (prevDay && t.date <= prevDay) continue;
                 const fx           = t.currency === 'USD' ? usdToCad : 1;
                 const dollarAmount = t.qty * t.price * fx;
-                const spPriceOnDay = getPrice('^GSPC', day);
+                const spPriceOnDay = getPrice(benchmarkSym, day);
                 if (spPriceOnDay && spPriceOnDay > 0) {
                     if (t.isBuy) {
                         spShares   += dollarAmount / spPriceOnDay;
@@ -4940,7 +5334,7 @@ class StockDashboard {
                 }
             }
 
-            const spPrice = getPrice('^GSPC', day);
+            const spPrice = getPrice(benchmarkSym, day);
             spValues.push(spPrice != null ? spShares * spPrice : null);
             netCapitals.push(netCapital);
         }
@@ -4964,7 +5358,9 @@ class StockDashboard {
         });
 
         const fmtDate = (d) => new Date(d + 'T12:00:00Z').toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
-        const subtitleText = `${fmtDate(effectiveDays[0])} → ${fmtDate(effectiveDays[effectiveDays.length - 1])} · Hypothetical: same dollars in S&P 500 on each trade date`;
+        const subtitleText = includeDividends
+            ? `${fmtDate(effectiveDays[0])} → ${fmtDate(effectiveDays[effectiveDays.length - 1])} · Total return: portfolio dividends included · benchmark is S&P 500 Total Return index`
+            : `${fmtDate(effectiveDays[0])} → ${fmtDate(effectiveDays[effectiveDays.length - 1])} · Hypothetical: same dollars in S&P 500 on each trade date`;
 
         canvas.getContext('2d').clearRect(0, 0, canvas.width, canvas.height);
 
@@ -4974,7 +5370,7 @@ class StockDashboard {
                 labels,
                 datasets: [
                     {
-                        label: 'Your Portfolio',
+                        label: includeDividends ? 'Portfolio TR' : 'Your Portfolio',
                         data: portfolioChanges,
                         borderColor: '#3D8A9E',
                         backgroundColor: 'rgba(61, 138, 158, 0.08)',
@@ -4985,7 +5381,7 @@ class StockDashboard {
                         fill: false
                     },
                     {
-                        label: 'S&P 500 Equivalent',
+                        label: includeDividends ? 'S&P 500 TR Equiv.' : 'S&P 500 Equivalent',
                         data: spChanges,
                         borderColor: '#E8A838',
                         backgroundColor: 'rgba(232, 168, 56, 0.08)',
@@ -6164,6 +6560,9 @@ class StockDashboard {
         if (collapsedStocks.includes(symbol)) {
             card.classList.add('collapsed');
         }
+        if (this.isExtraCollapsedMode()) {
+            card.classList.add('extra-collapsed');
+        }
 
         // Set width based on multiplier - match actual single card widths
         if (width > 1) {
@@ -6182,11 +6581,13 @@ class StockDashboard {
                 <div class="stock-symbol">
                     <span class="drag-handle">⋮⋮</span>
                     ${symbol}
+                    <span class="header-price"></span>
                     <button class="watchlist-add-btn" data-symbol="${symbol}" onclick="dashboard.addToWatchlist('${symbol}')" title="Add to Watchlist">
                         <svg class="wl-btn-plus" width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="6" y1="1" x2="6" y2="11"/><line x1="1" y1="6" x2="11" y2="6"/></svg>
                         <svg class="wl-btn-check" width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="1.5,6 4.5,9 10.5,3"/></svg>
                     </button>
                 </div>
+                <span class="header-change"></span>
                 <button class="remove-btn" onclick="dashboard.removeStock('${symbol}')">×</button>
             </div>
             <div class="stock-metrics" data-symbol="${symbol}">
@@ -6211,7 +6612,7 @@ class StockDashboard {
         const metricsArea = card.querySelector('.stock-metrics');
         metricsArea.addEventListener('click', (e) => {
             e.stopPropagation();
-            if (card.classList.contains('collapsed')) {
+            if (card.classList.contains('collapsed') || card.classList.contains('extra-collapsed')) {
                 this.openTrackingOverviewModal(symbol);
             } else {
                 this.toggleCardCollapse(symbol);
@@ -6219,7 +6620,7 @@ class StockDashboard {
         });
 
         card.addEventListener('click', (e) => {
-            if (card.classList.contains('collapsed') && !e.target.closest('.remove-btn, .resize-handle, .watchlist-add-btn')) {
+            if ((card.classList.contains('collapsed') || card.classList.contains('extra-collapsed')) && !e.target.closest('.remove-btn, .resize-handle, .watchlist-add-btn')) {
                 this.openTrackingOverviewModal(symbol);
             }
         });
@@ -6291,12 +6692,35 @@ class StockDashboard {
     }
 
     expandAllCards() {
+        localStorage.removeItem('stocks_extra_collapsed');
         this.stockList.forEach(entry => {
             const { symbol } = this.parseStockEntry(entry);
             const card = document.getElementById(`stock-${symbol}`);
-            if (card) card.classList.remove('collapsed');
+            if (card) {
+                card.classList.remove('collapsed');
+                card.classList.remove('extra-collapsed');
+            }
         });
         this.saveCollapsedStocks([]);
+    }
+
+    extraCollapseAllCards() {
+        localStorage.setItem('stocks_extra_collapsed', 'true');
+        const collapsedStocks = [];
+        this.stockList.forEach(entry => {
+            const { symbol } = this.parseStockEntry(entry);
+            const card = document.getElementById(`stock-${symbol}`);
+            if (card) {
+                card.classList.add('collapsed');
+                card.classList.add('extra-collapsed');
+                collapsedStocks.push(symbol);
+            }
+        });
+        this.saveCollapsedStocks(collapsedStocks);
+    }
+
+    isExtraCollapsedMode() {
+        return localStorage.getItem('stocks_extra_collapsed') === 'true';
     }
 
     collapseAllWatchlist() {
@@ -6325,26 +6749,34 @@ class StockDashboard {
         const bar = document.getElementById('collapseToggleBar');
         if (!bar || bar.classList.contains('hidden')) return;
         const activeTab = document.querySelector('.tab-btn.active')?.id;
-        let allCollapsed = false;
         if (activeTab === 'stocksTab') {
-            const stocks = this.stockList.filter(e => !this.parseStockEntry(e).isDivider);
-            const collapsed = this.getCollapsedStocks();
-            allCollapsed = stocks.length > 0 && stocks.every(e => collapsed.includes(this.parseStockEntry(e).symbol));
+            if (this.isExtraCollapsedMode()) {
+                bar.textContent = '▼';
+            } else {
+                const stocks = this.stockList.filter(e => !this.parseStockEntry(e).isDivider);
+                const collapsed = this.getCollapsedStocks();
+                const allCollapsed = stocks.length > 0 && stocks.every(e => collapsed.includes(this.parseStockEntry(e).symbol));
+                bar.textContent = allCollapsed ? '▽' : '▲';
+            }
         } else if (activeTab === 'watchlistTab') {
             const cards = document.querySelectorAll('.watchlist-card');
-            allCollapsed = cards.length > 0 && [...cards].every(c => c.classList.contains('collapsed'));
+            const allCollapsed = cards.length > 0 && [...cards].every(c => c.classList.contains('collapsed'));
+            bar.textContent = allCollapsed ? '▼' : '▲';
         }
-        bar.textContent = allCollapsed ? '▼' : '▲';
     }
 
     toggleCollapseAll() {
         const activeTab = document.querySelector('.tab-btn.active')?.id;
         if (activeTab === 'stocksTab') {
-            const stocks = this.stockList.filter(e => !this.parseStockEntry(e).isDivider);
-            const collapsed = this.getCollapsedStocks();
-            const allCollapsed = stocks.length > 0 && stocks.every(e => collapsed.includes(this.parseStockEntry(e).symbol));
-            if (allCollapsed) this.expandAllCards();
-            else this.collapseAllCards();
+            if (this.isExtraCollapsedMode()) {
+                this.expandAllCards();
+            } else {
+                const stocks = this.stockList.filter(e => !this.parseStockEntry(e).isDivider);
+                const collapsed = this.getCollapsedStocks();
+                const allCollapsed = stocks.length > 0 && stocks.every(e => collapsed.includes(this.parseStockEntry(e).symbol));
+                if (allCollapsed) this.extraCollapseAllCards();
+                else this.collapseAllCards();
+            }
         } else if (activeTab === 'watchlistTab') {
             const cards = document.querySelectorAll('.watchlist-card');
             const allCollapsed = cards.length > 0 && [...cards].every(c => c.classList.contains('collapsed'));
@@ -6380,6 +6812,16 @@ class StockDashboard {
             <span class="weekly-change ${metrics.isWeeklyPositive ? 'positive' : 'negative'}">${weeklyArrow} ${metrics.weeklyChangePercent}% (7d)</span>
             ${context === 'watchlist' ? `<span class="weekly-change ${metrics.isMonthlyPositive ? 'positive' : 'negative'}">${monthlyArrow} ${metrics.monthlyChangePercent}% (28d)</span>` : '<span class="tracking-pe-value">–</span>'}
         `;
+
+        if (context === 'tracking') {
+            const headerPrice = card.querySelector('.header-price');
+            if (headerPrice) headerPrice.textContent = metrics.currentPrice;
+            const headerChange = card.querySelector('.header-change');
+            if (headerChange) {
+                headerChange.textContent = `${arrow} ${metrics.dayChangePercent}%`;
+                headerChange.className = `header-change ${metrics.isPositive ? 'positive' : 'negative'}`;
+            }
+        }
     }
 
     updateStockCardChart(symbol, data, context = 'tracking') {
