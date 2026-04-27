@@ -1570,6 +1570,7 @@ button:active {
     display: flex;
     align-items: center;
     gap: 4px;
+    margin-left: auto;
 }
 
 #watchlistGrid .stock-card.extra-collapsed .stock-symbol {
@@ -1586,7 +1587,7 @@ button:active {
 }
 
 #watchlistGrid .stock-card.extra-collapsed .remove-btn {
-    margin-left: auto;
+    margin-left: 0;
 }
 
 #watchlistGrid .stock-card.extra-collapsed .collapsed-summary {

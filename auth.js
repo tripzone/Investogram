@@ -32,23 +32,32 @@ const googleProvider = new firebase.auth.GoogleAuthProvider();
 
 let currentUser = null;
 let syncTimer = null;
+let cachedToken = null;
 // Default to guest mode — overlay is not shown on startup; user opens it manually
 let guestMode = true;
 
 async function getAuthToken() {
     if (!currentUser) return null;
-    return currentUser.getIdToken();
+    cachedToken = await currentUser.getIdToken();
+    return cachedToken;
 }
 
 // ── Server sync ────────────────────────────────────────────────────────────────
+
+// Persistent dirty flag — survives page refresh so pullFromServer can detect
+// unsent changes even when syncTimer was cleared by the reload.
+function markDirty()  { _originalSetItem('_sync_dirty', '1'); }
+function clearDirty() { localStorage.removeItem('_sync_dirty'); }
+function isDirty()    { return localStorage.getItem('_sync_dirty') === '1'; }
 
 async function pullFromServer() {
     const token = await getAuthToken();
     if (!token) return;
 
     // Flush any pending push first so the server has the latest local changes
-    // before we pull — otherwise deleted/added items get overwritten by stale server data.
-    if (syncTimer) {
+    // before we pull. We check both the in-memory syncTimer (same-session changes)
+    // and the persistent dirty flag (changes made before a refresh that were never pushed).
+    if (syncTimer || isDirty()) {
         clearTimeout(syncTimer);
         syncTimer = null;
         await pushToServer();
@@ -156,12 +165,15 @@ async function pushToServer() {
             },
             body: JSON.stringify(payload)
         });
+        clearDirty();
     } catch (e) {
         console.error('[auth] Failed to push to server:', e);
     }
 }
 
 function schedulePush() {
+    // Mark dirty immediately so a refresh within the debounce window doesn't lose changes
+    markDirty();
     // Debounce: wait 1 s after the last change before pushing
     clearTimeout(syncTimer);
     syncTimer = setTimeout(pushToServer, 1000);
@@ -287,3 +299,4 @@ document.getElementById('skipAuthBtn').addEventListener('click', () => {
 document.getElementById('signInHeaderBtn').addEventListener('click', () => {
     showAuthOverlay();
 });
+
