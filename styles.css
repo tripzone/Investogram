@@ -1252,6 +1252,9 @@ h1 {
     .pos-stat-value {
         font-size: 14px;
     }
+    .pos-price-chart {
+        height: 150px;
+    }
 }
 
 .graph-placeholder {
@@ -1259,6 +1262,77 @@ h1 {
     font-size: 13px;
     text-align: center;
 }
+
+/* Holdings Overview table card */
+.holdings-overview-body {
+    flex-direction: column;
+    align-items: stretch;
+    justify-content: flex-start;
+    padding: 0;
+    min-height: 0;
+    overflow: hidden;
+}
+
+.holdings-overview-inner {
+    overflow-x: auto;
+    overflow-y: auto;
+    max-height: 480px;
+}
+
+.ho-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12px;
+    white-space: nowrap;
+}
+
+.ho-th {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    background: #111;
+    padding: 8px 12px;
+    text-align: right;
+    font-size: 9px;
+    font-weight: 700;
+    color: #444;
+    text-transform: uppercase;
+    letter-spacing: 0.7px;
+    border-bottom: 1px solid #222;
+    user-select: none;
+}
+
+.ho-th:first-child { text-align: left; }
+
+.ho-sortable {
+    cursor: pointer;
+}
+
+.ho-sortable:hover { color: #888; }
+
+.ho-td {
+    padding: 7px 12px;
+    text-align: right;
+    color: #bbb;
+    font-weight: 500;
+    border-bottom: 1px solid #1a1a1a;
+}
+
+.ho-row:last-child .ho-td { border-bottom: none; }
+
+.ho-row:hover .ho-td { background: rgba(255,255,255,0.025); }
+
+.ho-td:first-child { text-align: left; }
+
+.ho-symbol {
+    font-weight: 700;
+    color: #ddd;
+    letter-spacing: 0.3px;
+}
+
+.ho-stale { color: #484848; }
+.ho-pos { color: #48bb78; }
+.ho-neg { color: #fc8181; }
 
 #stockInput,
 #watchlistInput {
