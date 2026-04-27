@@ -181,7 +181,8 @@ class StockDashboard {
             uploadControls.classList.remove('visible');
             hideStockActions();
             showWatchlistActions();
-            document.getElementById('collapseToggleBar')?.classList.add('hidden');
+            const wlBar = document.getElementById('collapseToggleBar');
+            if (wlBar) { wlBar.classList.remove('hidden'); this.updateCollapseToggleBar(); }
 
             // Lazy render: first visit fetches only cache misses from tracking tab;
             // subsequent visits are instant since cards are already in the DOM.
@@ -2368,6 +2369,10 @@ class StockDashboard {
                 const maxBuyBar = Math.max(...buyBars, 1);
                 const maxSellBar = Math.max(...sellBars, 1);
 
+                const prices = pricePoints.map(p => p.price).filter(v => v != null);
+                const priceMin = prices.length ? Math.min(...prices) : undefined;
+                const priceMax = prices.length ? Math.max(...prices) : undefined;
+
                 // Format x-axis labels: show month+year for monthly, just date for weekly
                 const xLabels = periodDates.map(d => {
                     const dt = new Date(d + 'T12:00:00Z');
@@ -2447,6 +2452,8 @@ class StockDashboard {
                                 position: 'left',
                                 grid: { color: '#1a1a1a' },
                                 ticks: { color: '#555', font: { size: 10 }, maxTicksLimit: 5 },
+                                min: priceMin,
+                                max: priceMax,
                             },
                             yVol: {
                                 position: 'right',
@@ -6058,12 +6065,19 @@ class StockDashboard {
         card.dataset.symbol = symbol;
         card.dataset.width = 1;
 
+        if (this.isWatchlistExtraCollapsedMode()) {
+            card.classList.add('collapsed');
+            card.classList.add('extra-collapsed');
+        }
+
         card.innerHTML = `
             <div class="stock-header">
                 <div class="stock-symbol">
                     <span class="drag-handle">⋮⋮</span>
                     ${symbol}
                 </div>
+                <span class="header-change"></span>
+                <span class="header-pe"></span>
                 <button class="remove-btn" onclick="dashboard.removeFromWatchlist('${symbol}')">×</button>
             </div>
             <div class="collapsed-summary">
@@ -6111,12 +6125,14 @@ class StockDashboard {
         });
 
         card.addEventListener('click', (e) => {
-            if (card.classList.contains('collapsed') && !e.target.closest('.remove-btn')) {
+            if ((card.classList.contains('collapsed') || card.classList.contains('extra-collapsed')) && !e.target.closest('.remove-btn')) {
                 card.classList.remove('collapsed');
+                card.classList.remove('extra-collapsed');
                 const collapsedStocks = this.getCollapsedStocks();
                 const idx = collapsedStocks.indexOf(symbol);
                 if (idx > -1) collapsedStocks.splice(idx, 1);
                 this.saveCollapsedStocks(collapsedStocks);
+                this.updateCollapseToggleBar();
                 requestAnimationFrame(() => {
                     const chart = this.charts.get(`wl-${symbol}`);
                     if (chart) chart.resize();
@@ -6724,17 +6740,25 @@ class StockDashboard {
     }
 
     collapseAllWatchlist() {
+        localStorage.removeItem('watchlist_extra_collapsed');
         this.watchlist.forEach(symbol => {
             const card = document.getElementById(`watchlist-${symbol}`);
-            if (card) card.classList.add('collapsed');
+            if (card) {
+                card.classList.add('collapsed');
+                card.classList.remove('extra-collapsed');
+            }
         });
         this.updateCollapseToggleBar();
     }
 
     expandAllWatchlist() {
+        localStorage.removeItem('watchlist_extra_collapsed');
         this.watchlist.forEach(symbol => {
             const card = document.getElementById(`watchlist-${symbol}`);
-            if (card) card.classList.remove('collapsed');
+            if (card) {
+                card.classList.remove('collapsed');
+                card.classList.remove('extra-collapsed');
+            }
         });
         requestAnimationFrame(() => {
             this.watchlist.forEach(symbol => {
@@ -6743,6 +6767,22 @@ class StockDashboard {
             });
         });
         this.updateCollapseToggleBar();
+    }
+
+    extraCollapseAllWatchlist() {
+        localStorage.setItem('watchlist_extra_collapsed', 'true');
+        this.watchlist.forEach(symbol => {
+            const card = document.getElementById(`watchlist-${symbol}`);
+            if (card) {
+                card.classList.add('collapsed');
+                card.classList.add('extra-collapsed');
+            }
+        });
+        this.updateCollapseToggleBar();
+    }
+
+    isWatchlistExtraCollapsedMode() {
+        return localStorage.getItem('watchlist_extra_collapsed') === 'true';
     }
 
     updateCollapseToggleBar() {
@@ -6759,9 +6799,12 @@ class StockDashboard {
                 bar.textContent = allCollapsed ? '▽' : '▲';
             }
         } else if (activeTab === 'watchlistTab') {
-            const cards = document.querySelectorAll('.watchlist-card');
+            const cards = document.querySelectorAll('#watchlistGrid .stock-card');
+            const allExtra = cards.length > 0 && [...cards].every(c => c.classList.contains('extra-collapsed'));
             const allCollapsed = cards.length > 0 && [...cards].every(c => c.classList.contains('collapsed'));
-            bar.textContent = allCollapsed ? '▼' : '▲';
+            if (allExtra) bar.textContent = '▼';
+            else if (allCollapsed) bar.textContent = '▽';
+            else bar.textContent = '▲';
         }
     }
 
@@ -6778,9 +6821,11 @@ class StockDashboard {
                 else this.collapseAllCards();
             }
         } else if (activeTab === 'watchlistTab') {
-            const cards = document.querySelectorAll('.watchlist-card');
-            const allCollapsed = cards.length > 0 && [...cards].every(c => c.classList.contains('collapsed'));
-            if (allCollapsed) this.expandAllWatchlist();
+            const cards = [...document.querySelectorAll('#watchlistGrid .stock-card')];
+            const allExtra = cards.length > 0 && cards.every(c => c.classList.contains('extra-collapsed'));
+            const allCollapsed = cards.length > 0 && cards.every(c => c.classList.contains('collapsed'));
+            if (allExtra) this.expandAllWatchlist();
+            else if (allCollapsed) this.extraCollapseAllWatchlist();
             else this.collapseAllWatchlist();
         }
     }
@@ -6816,11 +6861,11 @@ class StockDashboard {
         if (context === 'tracking') {
             const headerPrice = card.querySelector('.header-price');
             if (headerPrice) headerPrice.textContent = metrics.currentPrice;
-            const headerChange = card.querySelector('.header-change');
-            if (headerChange) {
-                headerChange.textContent = `${arrow} ${metrics.dayChangePercent}%`;
-                headerChange.className = `header-change ${metrics.isPositive ? 'positive' : 'negative'}`;
-            }
+        }
+        const headerChange = card.querySelector('.header-change');
+        if (headerChange) {
+            headerChange.textContent = `${arrow} ${metrics.dayChangePercent}%`;
+            headerChange.className = `header-change ${metrics.isPositive ? 'positive' : 'negative'}`;
         }
     }
 
@@ -7313,6 +7358,10 @@ class StockDashboard {
         const csPeForward = card.querySelector('.cs-pe-forward');
         if (csPeTrailing) csPeTrailing.textContent = `P/E ${fmt(fundamentals.trailingPE)}`;
         if (csPeForward) csPeForward.textContent = `Fwd ${fmt(fundamentals.forwardPE)}`;
+
+        // Extra-collapsed header PE
+        const headerPe = card.querySelector('.header-pe');
+        if (headerPe) headerPe.textContent = `P/E ${fmt(fundamentals.trailingPE)}`;
     }
 
     updateTrackingCardPE(symbol, fundamentals) {

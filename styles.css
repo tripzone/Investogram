@@ -1534,6 +1534,50 @@ button:active {
 .header-change.positive { color: #48bb78; }
 .header-change.negative { color: #f56565; }
 
+.header-pe {
+    display: none;
+    font-size: 11px;
+    color: #777;
+    font-weight: 400;
+    white-space: nowrap;
+}
+
+/* Watchlist extra-collapsed: show header-change, header-pe, and cs-ratings only */
+#watchlistGrid .stock-card.extra-collapsed .header-change {
+    display: flex;
+    align-items: center;
+}
+
+#watchlistGrid .stock-card.extra-collapsed .header-pe {
+    display: inline;
+}
+
+#watchlistGrid .stock-card.extra-collapsed .stock-symbol {
+    width: 80px;
+    flex-shrink: 0;
+    overflow: hidden;
+    white-space: nowrap;
+}
+
+#watchlistGrid .stock-card.extra-collapsed .stock-header {
+    margin-bottom: 6px;
+    justify-content: flex-start;
+    gap: 8px;
+}
+
+#watchlistGrid .stock-card.extra-collapsed .remove-btn {
+    margin-left: auto;
+}
+
+#watchlistGrid .stock-card.extra-collapsed .collapsed-summary {
+    display: flex;
+    padding: 0 0 0 88px;
+}
+
+#watchlistGrid .stock-card.extra-collapsed .cs-metrics {
+    display: none;
+}
+
 /* Collapsed summary: shown only when card is collapsed */
 .collapsed-summary {
     display: none;
