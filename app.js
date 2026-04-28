@@ -244,7 +244,9 @@ class StockDashboard {
                 tabSwipe.startX = e.touches[0].clientX;
                 tabSwipe.startY = e.touches[0].clientY;
                 tabSwipe.dragging = false;
-                tabSwipe.locked = false;
+                // Lock if touch starts inside a horizontally scrollable container so
+                // native horizontal scroll isn't hijacked by the tab-swipe gesture.
+                tabSwipe.locked = !!e.target.closest('.holdings-overview-inner');
             }, { passive: true });
 
             mainContainer.addEventListener('touchmove', (e) => {

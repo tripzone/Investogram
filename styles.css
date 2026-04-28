@@ -1302,7 +1302,11 @@ h1 {
     user-select: none;
 }
 
-.ho-th:first-child { text-align: left; }
+.ho-th:first-child {
+    text-align: left;
+    left: 0;
+    z-index: 3;
+}
 
 .ho-sortable {
     cursor: pointer;
@@ -1322,7 +1326,15 @@ h1 {
 
 .ho-row:hover .ho-td { background: rgba(255,255,255,0.025); }
 
-.ho-td:first-child { text-align: left; }
+.ho-td:first-child {
+    text-align: left;
+    position: sticky;
+    left: 0;
+    z-index: 1;
+    background: #111;
+}
+
+.ho-row:hover .ho-td:first-child { background: #171717; }
 
 .ho-symbol {
     font-weight: 700;
