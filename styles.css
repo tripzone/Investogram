@@ -1340,7 +1340,10 @@ h1 {
     font-weight: 700;
     color: #ddd;
     letter-spacing: 0.3px;
+    cursor: pointer;
 }
+
+.ho-symbol:hover { text-decoration: underline; }
 
 .ho-stale { color: #484848; }
 .ho-pos { color: #48bb78; }

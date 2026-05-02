@@ -17,7 +17,7 @@ class StockDashboard {
         this._activeModalSymbol = null;
         this._activeModalContext = null; // 'tracking' | 'watchlist'
         this.trackingOverviewChart = null;
-        this.maVisibility = {}; // Store moving average visibility state
+        this.maVisibility = this._loadMAVisibility(); // Store moving average visibility state
         this.selectedFile = null;
         this.selectedGraph = null;
         this.showValues = this.loadShowValuesPreference();
@@ -773,6 +773,17 @@ class StockDashboard {
 
     saveShowValuesPreference(value) {
         localStorage.setItem('show_values', value.toString());
+    }
+
+    _loadMAVisibility() {
+        try {
+            const saved = localStorage.getItem('ma_visibility');
+            return saved ? JSON.parse(saved) : {};
+        } catch { return {}; }
+    }
+
+    _saveMAVisibility() {
+        localStorage.setItem('ma_visibility', JSON.stringify(this.maVisibility));
     }
 
     setupGraphSelector() {
@@ -3568,6 +3579,18 @@ class StockDashboard {
                 this.renderHoldingsOverview(canvasId);
             });
         });
+
+        container.querySelectorAll('.ho-symbol').forEach(el => {
+            el.addEventListener('click', () => {
+                const symbol = el.textContent.trim();
+                const deepDiveCanvasId = this.graphCanvasMap.get('position-deep-dive');
+                if (!deepDiveCanvasId) return;
+                const deepDiveCard = document.getElementById('portfolio-graph-position-deep-dive');
+                const input = deepDiveCard?.querySelector('.ticker-selector-input');
+                if (input) input.value = symbol;
+                this.renderPositionDeepDive(deepDiveCanvasId, symbol);
+            });
+        });
     }
 
     setupTickerSelector(graphCard, canvasId, graphId) {
@@ -5555,6 +5578,7 @@ class StockDashboard {
 
                 this.currentModalRange = range;
                 this.currentModalInterval = interval;
+                localStorage.setItem('preferred_modal_range', range);
 
                 this.loadCandlestickData(this.currentModalSymbol, range, interval);
 
@@ -5929,7 +5953,9 @@ class StockDashboard {
         });
 
         card.addEventListener('click', (e) => {
-            if ((card.classList.contains('collapsed') || card.classList.contains('extra-collapsed')) && !e.target.closest('.remove-btn')) {
+            const isCollapsed = card.classList.contains('collapsed') || card.classList.contains('extra-collapsed');
+            if (isCollapsed && !e.target.closest('.remove-btn')) {
+                // Collapsed/extra-collapsed → expand fully
                 card.classList.remove('collapsed');
                 card.classList.remove('extra-collapsed');
                 const collapsedStocks = this.getCollapsedStocks();
@@ -5941,6 +5967,20 @@ class StockDashboard {
                     const chart = this.charts.get(`wl-${symbol}`);
                     if (chart) chart.resize();
                 });
+            } else if (!isCollapsed && e.target.closest('.stock-header') && !e.target.closest('.remove-btn')) {
+                // Expanded → click header
+                // In global collapsed mode: go all the way back to bar
+                // In normal mode: collapse to summary view
+                if (this.isWatchlistExtraCollapsedMode()) {
+                    card.classList.add('collapsed');
+                    card.classList.add('extra-collapsed');
+                    this.updateCollapseToggleBar();
+                } else {
+                    card.classList.add('collapsed');
+                }
+                const collapsedStocks = this.getCollapsedStocks();
+                if (!collapsedStocks.includes(symbol)) collapsedStocks.push(symbol);
+                this.saveCollapsedStocks(collapsedStocks);
             }
         });
 
@@ -6433,7 +6473,7 @@ class StockDashboard {
         metricsArea.addEventListener('click', (e) => {
             e.stopPropagation();
             if (card.classList.contains('collapsed') || card.classList.contains('extra-collapsed')) {
-                this.openTrackingOverviewModal(symbol);
+                this.openPreferredModal(symbol, 'tracking');
             } else {
                 this.toggleCardCollapse(symbol);
             }
@@ -6441,7 +6481,7 @@ class StockDashboard {
 
         card.addEventListener('click', (e) => {
             if ((card.classList.contains('collapsed') || card.classList.contains('extra-collapsed')) && !e.target.closest('.remove-btn, .resize-handle, .watchlist-add-btn')) {
-                this.openTrackingOverviewModal(symbol);
+                this.openPreferredModal(symbol, 'tracking');
             }
         });
 
@@ -7591,7 +7631,8 @@ class StockDashboard {
         this._activeModalSymbol = symbol;
         // Use explicitly passed context, otherwise fall back to checking watchlist membership
         this._activeModalContext = context || (this.watchlist.includes(symbol) ? 'watchlist' : 'tracking');
-        const defaultRange = '5y';
+        localStorage.setItem('preferred_modal_type', 'candlestick');
+        const defaultRange = localStorage.getItem('preferred_modal_range') || '5y';
         const defaultInterval = this.getDefaultInterval(defaultRange);
         this.currentModalRange = defaultRange;
         this.currentModalInterval = defaultInterval;
@@ -7724,6 +7765,7 @@ class StockDashboard {
         if (!this._activeModalContext) {
             this._activeModalContext = this.watchlist.includes(symbol) ? 'watchlist' : 'tracking';
         }
+        localStorage.setItem('preferred_modal_type', 'fundamentals');
         modalSymbol.textContent = symbol;
         modalName.textContent = '';
         body.innerHTML = '<div class="fundamentals-loading">Loading...</div>';
@@ -7878,6 +7920,7 @@ class StockDashboard {
         if (!this._activeModalContext) {
             this._activeModalContext = 'watchlist';
         }
+        localStorage.setItem('preferred_modal_type', 'ai');
 
         const verdict = analysis.verdict || 'hold';
         const label = verdict.charAt(0).toUpperCase() + verdict.slice(1);
@@ -7925,6 +7968,20 @@ class StockDashboard {
 
     // ── Tracking Overview Modal ────────────────────────────────────────────────
 
+    openPreferredModal(symbol, context) {
+        const preferred = localStorage.getItem('preferred_modal_type') || 'tracking-overview';
+        // Guard: ai is only valid for watchlist context; tracking-overview is only valid for tracking
+        const valid = context === 'watchlist'
+            ? new Set(['candlestick', 'ai', 'fundamentals'])
+            : new Set(['candlestick', 'fundamentals', 'tracking-overview']);
+        const type = valid.has(preferred) ? preferred : (context === 'watchlist' ? 'candlestick' : 'tracking-overview');
+        this._activeModalContext = context;
+        if (type === 'candlestick') this.openCandlestickModal(symbol, context);
+        else if (type === 'fundamentals') this.openFundamentalsModal(symbol);
+        else if (type === 'ai') this.openAIModal(symbol);
+        else this.openTrackingOverviewModal(symbol);
+    }
+
     openTrackingOverviewModal(symbol) {
         const data = this.trackingDataMap[symbol];
         if (!data) return;
@@ -7932,6 +7989,7 @@ class StockDashboard {
         this._activeModalType = 'tracking-overview';
         this._activeModalSymbol = symbol;
         if (!this._activeModalContext) this._activeModalContext = 'tracking';
+        localStorage.setItem('preferred_modal_type', 'tracking-overview');
 
         const fund = stockAPI.getFundamentalsFromCache(symbol);
         const fmt = (v, dec = 1) => v != null ? parseFloat(v).toFixed(dec) : '–';
@@ -8370,6 +8428,7 @@ class StockDashboard {
                                 });
                                 // Save visibility state
                                 this.maVisibility['Bollinger'] = !newHiddenState;
+                                this._saveMAVisibility();
                             } else {
                                 // Default behavior for MAs
                                 const index = legendItem.index;
@@ -8380,6 +8439,7 @@ class StockDashboard {
                                 const dataset = chart.data.datasets[index];
                                 if (dataset.label) {
                                     this.maVisibility[dataset.label] = !meta.hidden;
+                                    this._saveMAVisibility();
                                 }
                             }
 
