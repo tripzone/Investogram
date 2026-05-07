@@ -29,6 +29,8 @@ class StockDashboard {
         this.latestPricesState = 'idle'; // 'idle' | 'loading' | 'active' | 'error'
         this.useCurrentPrices = true; // clock toggle: true = use market prices, false = use acquisition cost
         this.portfolioValueShowCapital = true; // portfolio value toggle: show actual historical qty vs current-holdings-only
+        this.portfolioContribShowDividends = false;
+        this.portfolioValueShowDividends = false;
         this.portfolioExcludedSymbols = this.loadPortfolioExcludedSymbols();
         this._holdingsOverviewSort = { col: 'portfolioPct', dir: 'desc' };
         this._pruneOldAICache();
@@ -85,14 +87,14 @@ class StockDashboard {
                 title: 'Asset Allocation',
                 cardTitle: 'Asset Allocation',
                 description: 'Portfolio breakdown — toggle between all assets and category groups',
-                heading: 'Asset Allocation'
+                heading: 'Allocation & Activity'
             },
             {
                 id: 'market-activity',
                 title: 'Market Activity',
                 cardTitle: 'Market Activity',
                 description: 'Monthly net trades or by-ticker breakdown — toggle between views',
-                heading: 'Trading Activity'
+                heading: 'Allocation & Activity'
             },
             {
                 id: 'portfolio-performance',
@@ -128,6 +130,13 @@ class StockDashboard {
                 cardTitle: 'Portfolio Value',
                 description: 'Total portfolio value over time in CAD',
                 heading: 'Performance'
+            },
+            {
+                id: 'risk-metrics',
+                title: 'Risk Metrics',
+                cardTitle: 'Risk Metrics',
+                description: 'Sharpe ratio, Beta vs S&P 500, and Max Drawdown',
+                heading: 'Risk'
             }
         ];
     }
@@ -930,6 +939,7 @@ class StockDashboard {
         if (!alreadyAdded) {
             option.addEventListener('click', () => {
                 this.selectGraph(graph);
+                this.addGraph();
             });
         }
 
@@ -1239,6 +1249,7 @@ class StockDashboard {
             const isHoldingsOverview = graphId === 'holdings-overview';
             const isContributionGraph = graphId === 'portfolio-contribution';
             const isPortfolioValueGraph = graphId === 'portfolio-value';
+            const isRiskMetrics = graphId === 'risk-metrics';
 
             // Timeframe row (performance graph only — market activity shares one row with mode)
             const SHORT_TERM_TFS = new Set(['7d', '28d', '3m']);
@@ -1263,12 +1274,12 @@ class StockDashboard {
                 <p>The two will diverge when you make large trades — that divergence is real information, not noise. TWR gap = selection skill. S&P Equiv gap = dollar-weighted alpha including deployment timing.</p>
             `;
 
+            const hasDividends = (() => {
+                const t = this.loadPortfolioData('trades');
+                return t?.some(r => r.type?.toLowerCase() === 'dividend') ?? false;
+            })();
             let modeRow = '';
             if (isPerformanceGraph) {
-                const hasDividends = (() => {
-                    const t = this.loadPortfolioData('trades');
-                    return t?.some(r => r.type?.toLowerCase() === 'dividend') ?? false;
-                })();
                 modeRow = `
                     <div class="graph-header-mode">
                         <button class="mode-btn active" data-mode="twr">TWR</button>
@@ -1284,14 +1295,20 @@ class StockDashboard {
                     </div>
                 `;
             } else if (isMarketActivityGraph) {
+                const maCatCols = this.loadCategoriesColumns() || [];
+                const maCatBtns = maCatCols.map((col, i) =>
+                    `<button class="cat-col-btn${i === 0 ? ' active' : ''}" data-col="${col}">${col}</button>`
+                ).join('');
                 modeRow = `
                     <div class="graph-header-mode">
                         <button class="mode-btn active" data-mode="net-trades">Net Trades</button>
                         <button class="mode-btn" data-mode="by-ticker">By Ticker</button>
+                        ${maCatCols.length ? `<button class="mode-btn" data-mode="by-category">By Category</button>` : ''}
                         <button class="timeframe-btn active" data-timeframe="1y">1Y</button>
                         <button class="timeframe-btn" data-timeframe="5y">5Y</button>
                         <button class="timeframe-btn" data-timeframe="all">ALL</button>
                     </div>
+                    ${maCatCols.length ? `<div class="graph-header-mode cat-col-row hidden">${maCatBtns}</div>` : ''}
                 `;
             } else if (isAllocationGraph) {
                 const catCols = this.loadCategoriesColumns() || [];
@@ -1310,15 +1327,26 @@ class StockDashboard {
                     </div>
                 `;
             } else if (isContributionGraph) {
+                const contribCatCols = this.loadCategoriesColumns() || [];
+                const contribCatBtns = contribCatCols.map((col, i) =>
+                    `<button class="cat-col-btn${i === 0 ? ' active' : ''}" data-col="${col}">${col}</button>`
+                ).join('');
                 modeRow = `
                     <div class="graph-header-mode">
+                        <button class="mode-btn active" data-mode="by-ticker">By Ticker</button>
+                        ${contribCatCols.length ? `<button class="mode-btn" data-mode="by-category">By Category</button>` : ''}
                         <button class="timeframe-btn" data-timeframe="7d">7D</button>
                         <button class="timeframe-btn" data-timeframe="28d">28D</button>
                         <button class="timeframe-btn" data-timeframe="6m">6M</button>
                         <button class="timeframe-btn active" data-timeframe="1y">1Y</button>
                         <button class="timeframe-btn" data-timeframe="3y">3Y</button>
                         <button class="timeframe-btn" data-timeframe="5y">5Y</button>
+                        <button class="div-toggle-btn${this.portfolioContribShowDividends ? ' active' : ''}" ${hasDividends ? '' : 'disabled'}
+                                title="${hasDividends ? 'Include dividend returns in P&L contribution' : 'No dividend rows found in trades CSV'}">
+                            Incl. Div
+                        </button>
                     </div>
+                    ${contribCatCols.length ? `<div class="graph-header-mode cat-col-row hidden">${contribCatBtns}</div>` : ''}
                 `;
             } else if (isPortfolioValueGraph) {
                 modeRow = `
@@ -1330,6 +1358,18 @@ class StockDashboard {
                         <button class="timeframe-btn" data-timeframe="3y">3Y</button>
                         <button class="timeframe-btn" data-timeframe="5y">5Y</button>
                         <button class="pv-capital-toggle${this.portfolioValueShowCapital ? ' active' : ''}" title="Toggle capital injections">Capital</button>
+                        <button class="div-toggle-btn${this.portfolioValueShowDividends ? ' active' : ''}" ${hasDividends ? '' : 'disabled'}
+                                title="${hasDividends ? 'Include dividend returns in portfolio value (capital-off mode)' : 'No dividend rows found in trades CSV'}">
+                            Incl. Div
+                        </button>
+                    </div>
+                `;
+            } else if (isRiskMetrics) {
+                modeRow = `
+                    <div class="graph-header-mode">
+                        <button class="timeframe-btn active" data-timeframe="1y">1Y</button>
+                        <button class="timeframe-btn" data-timeframe="3y">3Y</button>
+                        <button class="timeframe-btn" data-timeframe="5y">5Y</button>
                     </div>
                 `;
             }
@@ -1366,6 +1406,10 @@ class StockDashboard {
                 <div class="graph-card-body holdings-overview-body">
                     <div class="holdings-overview-inner" id="${canvasId}"></div>
                 </div>
+                ` : isRiskMetrics ? `
+                <div class="graph-card-body risk-metrics-body">
+                    <div class="risk-metrics-inner" id="${canvasId}"></div>
+                </div>
                 ` : `
                 <div class="graph-card-body">
                     <canvas id="${canvasId}"></canvas>
@@ -1380,17 +1424,27 @@ class StockDashboard {
             if (isMarketActivityGraph) {
                 const modeBtns = graphCard.querySelectorAll('.mode-btn');
                 const timeframeBtns = graphCard.querySelectorAll('.timeframe-btn');
+                const catColRow = graphCard.querySelector('.cat-col-row');
+                const catColBtns = () => graphCard.querySelectorAll('.cat-col-btn');
+
                 const renderMarketWithState = () => {
                     const mode = graphCard.querySelector('.mode-btn.active')?.dataset.mode || 'net-trades';
                     const timeframe = graphCard.querySelector('.timeframe-btn.active')?.dataset.timeframe || '1y';
-                    mode === 'by-ticker'
-                        ? this.renderMarketActivityByTicker(canvasId, timeframe)
-                        : this.renderMarketActivity(canvasId, timeframe);
+                    if (mode === 'by-ticker') {
+                        this.renderMarketActivityByTicker(canvasId, timeframe);
+                    } else if (mode === 'by-category') {
+                        const catCol = graphCard.querySelector('.cat-col-btn.active')?.dataset.col;
+                        if (catCol) this.renderMarketActivityByCategory(canvasId, timeframe, catCol);
+                    } else {
+                        this.renderMarketActivity(canvasId, timeframe);
+                    }
                 };
+
                 modeBtns.forEach(btn => btn.addEventListener('click', (e) => {
                     e.stopPropagation();
                     modeBtns.forEach(b => b.classList.remove('active'));
                     btn.classList.add('active');
+                    if (catColRow) catColRow.classList.toggle('hidden', btn.dataset.mode !== 'by-category');
                     renderMarketWithState();
                 }));
                 timeframeBtns.forEach(btn => btn.addEventListener('click', (e) => {
@@ -1399,6 +1453,16 @@ class StockDashboard {
                     btn.classList.add('active');
                     renderMarketWithState();
                 }));
+                if (catColRow) {
+                    catColRow.addEventListener('click', (e) => {
+                        e.stopPropagation();
+                        const btn = e.target.closest('.cat-col-btn');
+                        if (!btn) return;
+                        catColBtns().forEach(b => b.classList.remove('active'));
+                        btn.classList.add('active');
+                        renderMarketWithState();
+                    });
+                }
             }
 
             // Performance graph: mode + timeframe listeners (short-term → daily, long-term → weekly)
@@ -1466,13 +1530,54 @@ class StockDashboard {
             }
 
             if (isContributionGraph) {
+                const modeBtns = graphCard.querySelectorAll('.mode-btn');
                 const timeframeBtns = graphCard.querySelectorAll('.timeframe-btn');
+                const catColRow = graphCard.querySelector('.cat-col-row');
+
+                const renderContribWithState = () => {
+                    const mode = graphCard.querySelector('.mode-btn.active')?.dataset.mode || 'by-ticker';
+                    const period = graphCard.querySelector('.timeframe-btn.active')?.dataset.timeframe || '1y';
+                    const showDiv = graphCard.querySelector('.div-toggle-btn')?.classList.contains('active') ?? false;
+                    if (mode === 'by-category') {
+                        const catCol = graphCard.querySelector('.cat-col-btn.active')?.dataset.col;
+                        if (catCol) this.renderPortfolioContributionByCategory(canvasId, period, catCol, showDiv);
+                    } else {
+                        this.renderPortfolioContribution(canvasId, period, showDiv);
+                    }
+                };
+
+                modeBtns.forEach(btn => btn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    modeBtns.forEach(b => b.classList.remove('active'));
+                    btn.classList.add('active');
+                    if (catColRow) catColRow.classList.toggle('hidden', btn.dataset.mode !== 'by-category');
+                    renderContribWithState();
+                }));
                 timeframeBtns.forEach(btn => btn.addEventListener('click', (e) => {
                     e.stopPropagation();
                     timeframeBtns.forEach(b => b.classList.remove('active'));
                     btn.classList.add('active');
-                    this.renderPortfolioContribution(canvasId, btn.dataset.timeframe);
+                    renderContribWithState();
                 }));
+                if (catColRow) {
+                    catColRow.addEventListener('click', (e) => {
+                        e.stopPropagation();
+                        const btn = e.target.closest('.cat-col-btn');
+                        if (!btn) return;
+                        graphCard.querySelectorAll('.cat-col-btn').forEach(b => b.classList.remove('active'));
+                        btn.classList.add('active');
+                        renderContribWithState();
+                    });
+                }
+                const contribDivBtn = graphCard.querySelector('.div-toggle-btn');
+                if (contribDivBtn && !contribDivBtn.disabled) {
+                    contribDivBtn.addEventListener('click', (e) => {
+                        e.stopPropagation();
+                        contribDivBtn.classList.toggle('active');
+                        this.portfolioContribShowDividends = contribDivBtn.classList.contains('active');
+                        renderContribWithState();
+                    });
+                }
             }
 
             if (isPortfolioValueGraph) {
@@ -1482,7 +1587,8 @@ class StockDashboard {
                     timeframeBtns.forEach(b => b.classList.remove('active'));
                     btn.classList.add('active');
                     const period = btn.dataset.timeframe;
-                    this.renderPortfolioValue(canvasId, period, this.portfolioValueShowCapital);
+                    const showDiv = graphCard.querySelector('.div-toggle-btn')?.classList.contains('active') ?? false;
+                    this.renderPortfolioValue(canvasId, period, this.portfolioValueShowCapital, showDiv);
                 }));
 
                 const capitalToggle = graphCard.querySelector('.pv-capital-toggle');
@@ -1492,9 +1598,31 @@ class StockDashboard {
                         this.portfolioValueShowCapital = !this.portfolioValueShowCapital;
                         capitalToggle.classList.toggle('active', this.portfolioValueShowCapital);
                         const activePeriod = graphCard.querySelector('.timeframe-btn.active')?.dataset.timeframe || '1y';
-                        this.renderPortfolioValue(canvasId, activePeriod, this.portfolioValueShowCapital);
+                        const showDiv = graphCard.querySelector('.div-toggle-btn')?.classList.contains('active') ?? false;
+                        this.renderPortfolioValue(canvasId, activePeriod, this.portfolioValueShowCapital, showDiv);
                     });
                 }
+
+                const pvDivBtn = graphCard.querySelector('.div-toggle-btn');
+                if (pvDivBtn && !pvDivBtn.disabled) {
+                    pvDivBtn.addEventListener('click', (e) => {
+                        e.stopPropagation();
+                        pvDivBtn.classList.toggle('active');
+                        this.portfolioValueShowDividends = pvDivBtn.classList.contains('active');
+                        const activePeriod = graphCard.querySelector('.timeframe-btn.active')?.dataset.timeframe || '1y';
+                        this.renderPortfolioValue(canvasId, activePeriod, this.portfolioValueShowCapital, this.portfolioValueShowDividends);
+                    });
+                }
+            }
+
+            if (isRiskMetrics) {
+                const timeframeBtns = graphCard.querySelectorAll('.timeframe-btn');
+                timeframeBtns.forEach(btn => btn.addEventListener('click', e => {
+                    e.stopPropagation();
+                    timeframeBtns.forEach(b => b.classList.remove('active'));
+                    btn.classList.add('active');
+                    this.renderRiskMetrics(canvasId, btn.dataset.timeframe);
+                }));
             }
 
             // Add resize functionality
@@ -1580,9 +1708,14 @@ class StockDashboard {
                 const card = document.getElementById(`portfolio-graph-${graphId}`);
                 const mode = card?.querySelector('.mode-btn.active')?.dataset.mode || 'net-trades';
                 const timeframe = card?.querySelector('.timeframe-btn.active')?.dataset.timeframe || '1y';
-                mode === 'by-ticker'
-                    ? await this.renderMarketActivityByTicker(canvasId, timeframe)
-                    : await this.renderMarketActivity(canvasId, timeframe);
+                if (mode === 'by-ticker') {
+                    await this.renderMarketActivityByTicker(canvasId, timeframe);
+                } else if (mode === 'by-category') {
+                    const catCol = card?.querySelector('.cat-col-btn.active')?.dataset.col;
+                    if (catCol) await this.renderMarketActivityByCategory(canvasId, timeframe, catCol);
+                } else {
+                    await this.renderMarketActivity(canvasId, timeframe);
+                }
                 break;
             }
             case 'portfolio-performance': {
@@ -1612,14 +1745,28 @@ class StockDashboard {
                 break;
             case 'portfolio-contribution': {
                 const card = document.getElementById(`portfolio-graph-${graphId}`);
+                const mode = card?.querySelector('.mode-btn.active')?.dataset.mode || 'by-ticker';
                 const period = card?.querySelector('.timeframe-btn.active')?.dataset.timeframe || '1y';
-                await this.renderPortfolioContribution(canvasId, period);
+                const showDiv = card?.querySelector('.div-toggle-btn')?.classList.contains('active') ?? false;
+                if (mode === 'by-category') {
+                    const catCol = card?.querySelector('.cat-col-btn.active')?.dataset.col;
+                    if (catCol) await this.renderPortfolioContributionByCategory(canvasId, period, catCol, showDiv);
+                } else {
+                    await this.renderPortfolioContribution(canvasId, period, showDiv);
+                }
                 break;
             }
             case 'portfolio-value': {
                 const card = document.getElementById(`portfolio-graph-${graphId}`);
                 const period = card?.querySelector('.timeframe-btn.active')?.dataset.timeframe || '1y';
-                await this.renderPortfolioValue(canvasId, period, this.portfolioValueShowCapital);
+                const showDiv = card?.querySelector('.div-toggle-btn')?.classList.contains('active') ?? false;
+                await this.renderPortfolioValue(canvasId, period, this.portfolioValueShowCapital, showDiv);
+                break;
+            }
+            case 'risk-metrics': {
+                const card = document.getElementById(`portfolio-graph-${graphId}`);
+                const period = card?.querySelector('.timeframe-btn.active')?.dataset.timeframe || '1y';
+                await this.renderRiskMetrics(canvasId, period);
                 break;
             }
             default: {
@@ -1653,20 +1800,33 @@ class StockDashboard {
             setTimeout(() => {
                 if (graphId === 'market-activity') {
                     const mode = graphCard?.querySelector('.mode-btn.active')?.dataset.mode || 'net-trades';
-                    mode === 'by-ticker'
-                        ? this.renderMarketActivityByTicker(canvasId, timeframe)
-                        : this.renderMarketActivity(canvasId, timeframe);
+                    if (mode === 'by-ticker') {
+                        this.renderMarketActivityByTicker(canvasId, timeframe);
+                    } else if (mode === 'by-category') {
+                        const catCol = graphCard?.querySelector('.cat-col-btn.active')?.dataset.col;
+                        if (catCol) this.renderMarketActivityByCategory(canvasId, timeframe, catCol);
+                    } else {
+                        this.renderMarketActivity(canvasId, timeframe);
+                    }
                 } else if (graphId === 'position-deep-dive') {
                     const ticker = graphCard?.querySelector('.ticker-selector-input')?.value || null;
                     this.renderPositionDeepDive(canvasId, ticker);
                 } else if (graphId === 'holdings-overview') {
                     this.renderHoldingsOverview(canvasId);
                 } else if (graphId === 'portfolio-contribution') {
+                    const mode = graphCard?.querySelector('.mode-btn.active')?.dataset.mode || 'by-ticker';
                     const period = graphCard?.querySelector('.timeframe-btn.active')?.dataset.timeframe || '1y';
-                    this.renderPortfolioContribution(canvasId, period);
+                    const showDiv = graphCard?.querySelector('.div-toggle-btn')?.classList.contains('active') ?? false;
+                    if (mode === 'by-category') {
+                        const catCol = graphCard?.querySelector('.cat-col-btn.active')?.dataset.col;
+                        if (catCol) this.renderPortfolioContributionByCategory(canvasId, period, catCol, showDiv);
+                    } else {
+                        this.renderPortfolioContribution(canvasId, period, showDiv);
+                    }
                 } else if (graphId === 'portfolio-value') {
                     const period = graphCard?.querySelector('.timeframe-btn.active')?.dataset.timeframe || '1y';
-                    this.renderPortfolioValue(canvasId, period, this.portfolioValueShowCapital);
+                    const showDiv = graphCard?.querySelector('.div-toggle-btn')?.classList.contains('active') ?? false;
+                    this.renderPortfolioValue(canvasId, period, this.portfolioValueShowCapital, showDiv);
                 } else if (graphId === 'portfolio-performance') {
                     const mode = graphCard?.querySelector('.mode-btn.active')?.dataset.mode || 'twr';
                     const tf = activeTimeframeBtn?.dataset.timeframe || '1y';
@@ -1680,6 +1840,9 @@ class StockDashboard {
                             ? this.renderPortfolioPerformance(canvasId, tf)
                             : this.renderPortfolioPerformanceWeekly(canvasId, tf);
                     }
+                } else if (graphId === 'risk-metrics') {
+                    const period = graphCard?.querySelector('.timeframe-btn.active')?.dataset.timeframe || '1y';
+                    this.renderRiskMetrics(canvasId, period);
                 } else {
                     this.renderGraph(graphId, canvasId);
                 }
@@ -3723,7 +3886,7 @@ class StockDashboard {
         };
     }
 
-    async renderPortfolioContribution(canvasId, period = '1y') {
+    async renderPortfolioContribution(canvasId, period = '1y', showDividends = false) {
         const canvas = document.getElementById(canvasId);
         if (!canvas) return;
 
@@ -3779,6 +3942,19 @@ class StockDashboard {
             const isSell = type === 'sell' || type === 'sale'    || (type === 'trade' && rawQty < 0);
             return (isBuy || isSell) && !this.portfolioExcludedSymbols.has(t.symbol?.toUpperCase());
         });
+
+        // Per-symbol dividend trades indexed by base symbol (used when showDividends is on)
+        const dividendsByBase = new Map();
+        if (showDividends) {
+            for (const t of (rawTrades || [])) {
+                if (t.type?.toLowerCase() !== 'dividend') continue;
+                if (this.portfolioExcludedSymbols.has(t.symbol?.toUpperCase())) continue;
+                const base = this.stripExchange(t.symbol);
+                if (!base) continue;
+                if (!dividendsByBase.has(base)) dividendsByBase.set(base, []);
+                dividendsByBase.get(base).push(t);
+            }
+        }
 
         // Current qty per symbol from positions CSV (authoritative for current holdings)
         const currentQty = new Map();
@@ -3892,6 +4068,23 @@ class StockDashboard {
                 const tMult     = /\.(TO|TSX|V|VN|CN|NE)$/i.test(t.symbol || '') ? 1.0
                                 : tCurrency === 'USD' ? usdToCad : 1.0;
                 netCapital += (isBuy ? 1 : -1) * tAmtRaw * tMult;
+            }
+
+            // Dividends reduce net capital (cash returned from investment without selling shares).
+            // This increases contributionCAD to reflect total return including income.
+            if (showDividends) {
+                for (const d of (dividendsByBase.get(base) || [])) {
+                    if (!d.transaction_date || d.transaction_date <= startDateStr) continue;
+                    let dAmtRaw = NaN;
+                    if      (d.net_amount != null && d.net_amount !== '') dAmtRaw = Math.abs(parseFloat(d.net_amount));
+                    else if (d.amount     != null && d.amount     !== '') dAmtRaw = Math.abs(parseFloat(d.amount));
+                    else if (d.value      != null && d.value      !== '') dAmtRaw = Math.abs(parseFloat(d.value));
+                    else if (d.total      != null && d.total      !== '') dAmtRaw = Math.abs(parseFloat(d.total));
+                    if (isNaN(dAmtRaw) || dAmtRaw === 0) continue;
+                    const dCurrency = d.currency || currency;
+                    const dMult = /\.(TO|TSX|V|VN|CN|NE)$/i.test(d.symbol || '') ? 1.0 : dCurrency === 'USD' ? usdToCad : 1.0;
+                    netCapital -= dAmtRaw * dMult;
+                }
             }
 
             // P&L = (what current shares are worth now) - (what those same shares were worth at period start)
@@ -4075,7 +4268,707 @@ class StockDashboard {
         this.portfolioCharts.set(canvasId, chart);
     }
 
-    async renderPortfolioValue(canvasId, period = '1y', showCapital = true) {
+    async renderMarketActivityByCategory(canvasId, timeframe = '1y', categoryCol) {
+        const rawTrades = this.loadPortfolioData('trades');
+        const tradesData = rawTrades
+            ? rawTrades.filter(t => !this.portfolioExcludedSymbols.has(t.symbol?.toUpperCase()))
+            : null;
+        const canvas = document.getElementById(canvasId);
+        if (!canvas) return;
+
+        const existingChart = this.portfolioCharts.get(canvasId);
+        if (existingChart) { existingChart.destroy(); this.portfolioCharts.delete(canvasId); }
+
+        const showMsg = msg => {
+            const ctx = canvas.getContext('2d');
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            ctx.fillStyle = '#666';
+            ctx.font = '13px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto';
+            ctx.textAlign = 'center';
+            ctx.fillText(msg, canvas.width / 2, canvas.height / 2);
+        };
+
+        if (!rawTrades || rawTrades.length === 0) {
+            showMsg('No trades data available. Upload trades data to see this chart.');
+            return;
+        }
+
+        const categoriesData = this.loadCategoriesData();
+        if (!categoriesData || categoriesData.length === 0) {
+            showMsg('No categories data available. Upload categories data to see this chart.');
+            return;
+        }
+
+        let usdToCad = await this.getExchangeRate('USD', 'CAD') || 1.0;
+
+        // symbol → category value mapping
+        const symbolToCat = new Map();
+        for (const row of categoriesData) {
+            const val = row[categoryCol];
+            if (val && val.trim() !== '' && val !== 'N/A') {
+                symbolToCat.set(row.symbol?.toUpperCase(), val.trim());
+            }
+        }
+
+        // Build month range
+        const now = new Date();
+        let monthsToShow = [];
+        if (timeframe === 'all') {
+            let earliest = now;
+            tradesData.forEach(t => {
+                const d = new Date(t.transaction_date);
+                if (!isNaN(d.getTime()) && d < earliest) earliest = d;
+            });
+            const start = new Date(earliest.getFullYear(), earliest.getMonth(), 1);
+            const end   = new Date(now.getFullYear(), now.getMonth(), 1);
+            const cur   = new Date(start);
+            while (cur <= end) {
+                const key = `${cur.getFullYear()}-${String(cur.getMonth() + 1).padStart(2, '0')}`;
+                monthsToShow.push({ key, label: cur.toLocaleDateString('en-US', { year: 'numeric', month: 'short' }) });
+                cur.setMonth(cur.getMonth() + 1);
+            }
+        } else {
+            const count = timeframe === '1y' ? 12 : 60;
+            for (let i = count - 1; i >= 0; i--) {
+                const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+                const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+                monthsToShow.push({ key, label: d.toLocaleDateString('en-US', { year: 'numeric', month: 'short' }) });
+            }
+        }
+
+        // Group trades by category value × month
+        const catMonthData = {};
+        const allCats = new Set();
+        tradesData.forEach(trade => {
+            if (trade.type?.toLowerCase() === 'dividend') return;
+            const d = new Date(trade.transaction_date);
+            if (isNaN(d.getTime())) return;
+            const monthKey = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+            if (!monthsToShow.find(m => m.key === monthKey)) return;
+            const cat = symbolToCat.get(trade.symbol?.toUpperCase());
+            if (!cat) return;
+            let amount = 0;
+            if (trade.net_amount) amount = parseFloat(trade.net_amount);
+            else if (trade.quantity && trade.price) amount = parseFloat(trade.quantity) * parseFloat(trade.price);
+            if (isNaN(amount) || amount === 0) return;
+            const amountCAD = trade.currency === 'USD' ? amount * usdToCad : amount;
+            if (!catMonthData[cat]) catMonthData[cat] = {};
+            catMonthData[cat][monthKey] = (catMonthData[cat][monthKey] || 0) + amountCAD;
+            allCats.add(cat);
+        });
+
+        const labels = monthsToShow.map(m => m.label);
+        const catArray = Array.from(allCats).sort();
+        const greenPalette = [
+            '#1E4D5C','#245a6b','#2A6B7D','#326f84','#3D8A9E',
+        ];
+        const warmPalette = [
+            '#a84025','#c05030','#d46438','#e07444','#e88050',
+        ];
+
+        const datasets = catArray.map((cat, idx) => {
+            const total = Math.max(catArray.length, 2);
+            const greenColor = this.interpolateColor(greenPalette, idx, total);
+            const warmColor  = this.interpolateColor(warmPalette,  idx, total);
+            return {
+                label: cat,
+                data: monthsToShow.map(m => catMonthData[cat][m.key] || 0),
+                backgroundColor: ctx => (ctx.parsed?.y ?? 0) >= 0 ? greenColor : warmColor,
+                borderColor:     ctx => (ctx.parsed?.y ?? 0) >= 0 ? greenColor : warmColor,
+                borderWidth: 1,
+                stack: 'stack0',
+            };
+        });
+
+        const showValues = this.showValues;
+        const formatCurrency = this.formatCurrency.bind(this);
+        const currentTimeframe = timeframe;
+
+        const chart = new Chart(canvas.getContext('2d'), {
+            type: 'bar',
+            data: { labels, datasets },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                animation: false,
+                plugins: {
+                    legend: { display: false },
+                    tooltip: {
+                        backgroundColor: 'rgba(0,0,0,0.9)',
+                        padding: 12,
+                        titleColor: '#fff',
+                        bodyColor: '#fff',
+                        borderColor: '#444',
+                        borderWidth: 1,
+                        callbacks: {
+                            title: ctx => ctx[0].label,
+                            label: ctx => {
+                                const cat = ctx.dataset.label;
+                                const v   = ctx.parsed.y;
+                                if (showValues) {
+                                    return [`${cat}: ${formatCurrency(Math.abs(v), 'CAD')}`, v >= 0 ? '(Bought)' : '(Sold)'];
+                                }
+                                return `${cat}: ${v >= 0 ? 'Bought' : 'Sold'}`;
+                            }
+                        }
+                    }
+                },
+                scales: {
+                    x: {
+                        stacked: true,
+                        grid: { color: '#2a2a2a', drawBorder: false },
+                        ticks: { color: '#999', maxRotation: 45, minRotation: 45, autoSkip: true,
+                                 maxTicksLimit: currentTimeframe === 'all' ? 20 : (currentTimeframe === '5y' ? 15 : 12) }
+                    },
+                    y: {
+                        stacked: true,
+                        grid: { color: '#2a2a2a', drawBorder: false },
+                        ticks: {
+                            color: '#999',
+                            callback: v => {
+                                if (!showValues) return '';
+                                const abs = Math.abs(v), sign = v < 0 ? '-' : '';
+                                if (abs === 0) return '$0';
+                                if (abs >= 1e6) return sign + '$' + (abs / 1e6).toFixed(1) + 'M';
+                                if (abs >= 1000) return sign + '$' + (abs / 1000).toFixed(0) + 'K';
+                                return sign + '$' + abs.toFixed(0);
+                            }
+                        }
+                    }
+                }
+            }
+        });
+
+        this.portfolioCharts.set(canvasId, chart);
+    }
+
+    async renderPortfolioContributionByCategory(canvasId, period = '1y', categoryCol, showDividends = false) {
+        const canvas = document.getElementById(canvasId);
+        if (!canvas) return;
+
+        const showValues = this.showValues;
+        const showMsg = msg => {
+            const ctx = canvas.getContext('2d');
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            ctx.fillStyle = '#666';
+            ctx.font = '13px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto';
+            ctx.textAlign = 'center';
+            ctx.fillText(msg, canvas.width / 2, canvas.height / 2);
+        };
+
+        const rawPositions = this.loadPortfolioData('positions');
+        const positions = rawPositions
+            ? rawPositions.filter(p => !this.portfolioExcludedSymbols.has(p.symbol?.toUpperCase()))
+            : null;
+        if (!positions || positions.length === 0) { showMsg('Upload a positions CSV to see P&L contribution'); return; }
+
+        const categoriesData = this.loadCategoriesData();
+        if (!categoriesData || categoriesData.length === 0) { showMsg('No categories data available. Upload categories data to see this chart.'); return; }
+
+        const existing = this.portfolioCharts.get(canvasId);
+        if (existing) { existing.destroy(); this.portfolioCharts.delete(canvasId); }
+        showMsg('Loading…');
+
+        const usdToCad = await this.getExchangeRate('USD', 'CAD') || 1.0;
+
+        // symbol → category value mapping
+        const symbolToCat = new Map();
+        for (const row of categoriesData) {
+            const val = row[categoryCol];
+            if (val && val.trim() !== '' && val !== 'N/A') {
+                symbolToCat.set(row.symbol?.toUpperCase(), val.trim());
+            }
+        }
+
+        const PERIOD_FETCH = {
+            '7d':  { range: '5d',  interval: '1d' },
+            '28d': { range: '1mo', interval: '1d' },
+            '6m':  { range: '6mo', interval: '1d' },
+            '1y':  { range: '1y',  interval: '1wk' },
+            '3y':  { range: '3y',  interval: '1mo' },
+            '5y':  { range: '5y',  interval: '1mo' },
+        };
+        const { range, interval } = PERIOD_FETCH[period] || PERIOD_FETCH['1y'];
+
+        const rawTrades = this.loadPortfolioData('trades');
+        const buySellTrades = (rawTrades || []).filter(t => {
+            const type   = t.type?.toLowerCase();
+            const rawQty = parseFloat(t.quantity || 0);
+            const isBuy  = type === 'buy' || type === 'purchase' || (type === 'trade' && rawQty > 0);
+            const isSell = type === 'sell' || type === 'sale'    || (type === 'trade' && rawQty < 0);
+            return (isBuy || isSell) && !this.portfolioExcludedSymbols.has(t.symbol?.toUpperCase());
+        });
+
+        const dividendsByBase = new Map();
+        if (showDividends) {
+            for (const t of (rawTrades || [])) {
+                if (t.type?.toLowerCase() !== 'dividend') continue;
+                if (this.portfolioExcludedSymbols.has(t.symbol?.toUpperCase())) continue;
+                const base = this.stripExchange(t.symbol);
+                if (!base) continue;
+                if (!dividendsByBase.has(base)) dividendsByBase.set(base, []);
+                dividendsByBase.get(base).push(t);
+            }
+        }
+
+        const currentQty = new Map();
+        for (const pos of positions) {
+            const sym = pos.symbol?.toUpperCase();
+            if (!sym) continue;
+            currentQty.set(sym, (currentQty.get(sym) || 0) + parseFloat(pos.quantity || 0));
+        }
+        const positionSyms = [...currentQty.keys()].filter(sym => (currentQty.get(sym) || 0) > 0);
+
+        let batchData = {};
+        try {
+            batchData = await window.stockAPI.fetchBatchCached(positionSyms, range, interval);
+        } catch (e) {
+            showMsg('Failed to load price data');
+            return;
+        }
+
+        const getQtyAt        = this.buildTradePositionLedger(buySellTrades);
+        const symbolsInTrades = new Set(buySellTrades.map(t => this.stripExchange(t.symbol)).filter(Boolean));
+        const tradesByBase    = new Map();
+        for (const t of buySellTrades) {
+            const base = this.stripExchange(t.symbol);
+            if (!base) continue;
+            if (!tradesByBase.has(base)) tradesByBase.set(base, []);
+            tradesByBase.get(base).push(t);
+        }
+
+        let startPortfolioCAD = 0;
+        let endPortfolioCAD   = 0;
+        // category value → accumulated contribution
+        const catContribs = new Map();
+
+        for (const sym of positionSyms) {
+            const endQty = currentQty.get(sym) || 0;
+            if (!endQty) continue;
+            const data = batchData[sym];
+            if (!data?.chart?.result?.[0]) continue;
+
+            const result     = data.chart.result[0];
+            const meta       = result.meta;
+            const timestamps = result.timestamp || [];
+            const closes     = result.indicators?.quote?.[0]?.close || [];
+
+            let startPrice = null, startDateStr = null;
+            for (let i = 0; i < closes.length; i++) {
+                if (closes[i] != null && !isNaN(closes[i])) {
+                    startPrice   = closes[i];
+                    startDateStr = new Date(timestamps[i] * 1000).toISOString().split('T')[0];
+                    break;
+                }
+            }
+            if (!startPrice || !startDateStr) continue;
+
+            const currentPrice = meta.regularMarketPrice;
+            if (!currentPrice) continue;
+
+            const rawCurrency = meta.currency;
+            const currency    = rawCurrency || (/\.(TO|TSX|V|VN|CN|NE)$/i.test(sym) ? 'CAD' : 'USD');
+            const cadMult     = currency === 'USD' ? usdToCad : 1.0;
+            const base        = this.stripExchange(sym);
+            const hasTradeHistory = symbolsInTrades.has(base);
+            const ledgerTotalQty  = hasTradeHistory ? getQtyAt(sym, '2099-12-31') : endQty;
+            const effectiveEndQty = Math.min(endQty, ledgerTotalQty);
+            const rawStartQty     = hasTradeHistory ? getQtyAt(sym, startDateStr) : effectiveEndQty;
+            const startQty        = Math.min(rawStartQty, effectiveEndQty);
+
+            let netCapital = 0;
+            for (const t of (tradesByBase.get(base) || [])) {
+                if (!t.transaction_date || t.transaction_date <= startDateStr) continue;
+                const type   = t.type?.toLowerCase();
+                const rawQty = parseFloat(t.quantity || 0);
+                const isBuy  = type === 'buy' || type === 'purchase' || (type === 'trade' && rawQty > 0);
+                const isSell = type === 'sell' || type === 'sale'    || (type === 'trade' && rawQty < 0);
+                if (!isBuy && !isSell) continue;
+                let tAmtRaw = NaN;
+                if      (t.net_amount != null && t.net_amount !== '') tAmtRaw = Math.abs(parseFloat(t.net_amount));
+                else if (t.amount     != null && t.amount     !== '') tAmtRaw = Math.abs(parseFloat(t.amount));
+                else if (t.value      != null && t.value      !== '') tAmtRaw = Math.abs(parseFloat(t.value));
+                else if (t.total      != null && t.total      !== '') tAmtRaw = Math.abs(parseFloat(t.total));
+                else if (t.total_cost != null && t.total_cost !== '') tAmtRaw = Math.abs(parseFloat(t.total_cost));
+                else if (rawQty && t.price) tAmtRaw = Math.abs(rawQty) * Math.abs(parseFloat(t.price));
+                if (isNaN(tAmtRaw) || tAmtRaw === 0) continue;
+                const tCurrency = t.currency || currency;
+                const tMult = /\.(TO|TSX|V|VN|CN|NE)$/i.test(t.symbol || '') ? 1.0 : tCurrency === 'USD' ? usdToCad : 1.0;
+                netCapital += (isBuy ? 1 : -1) * tAmtRaw * tMult;
+            }
+
+            if (showDividends) {
+                for (const d of (dividendsByBase.get(base) || [])) {
+                    if (!d.transaction_date || d.transaction_date <= startDateStr) continue;
+                    let dAmtRaw = NaN;
+                    if      (d.net_amount != null && d.net_amount !== '') dAmtRaw = Math.abs(parseFloat(d.net_amount));
+                    else if (d.amount     != null && d.amount     !== '') dAmtRaw = Math.abs(parseFloat(d.amount));
+                    else if (d.value      != null && d.value      !== '') dAmtRaw = Math.abs(parseFloat(d.value));
+                    else if (d.total      != null && d.total      !== '') dAmtRaw = Math.abs(parseFloat(d.total));
+                    if (isNaN(dAmtRaw) || dAmtRaw === 0) continue;
+                    const dCurrency = d.currency || currency;
+                    const dMult = /\.(TO|TSX|V|VN|CN|NE)$/i.test(d.symbol || '') ? 1.0 : dCurrency === 'USD' ? usdToCad : 1.0;
+                    netCapital -= dAmtRaw * dMult;
+                }
+            }
+
+            const startValueCAD   = startQty        * startPrice   * cadMult;
+            const endValueCAD     = effectiveEndQty  * currentPrice * cadMult;
+            const contributionCAD = endValueCAD - startValueCAD - netCapital;
+
+            startPortfolioCAD += startValueCAD;
+            endPortfolioCAD   += endValueCAD;
+
+            const cat = symbolToCat.get(sym) || symbolToCat.get(base?.toUpperCase()) || 'Other';
+            catContribs.set(cat, (catContribs.get(cat) || 0) + contributionCAD);
+        }
+
+        if (catContribs.size === 0) { showMsg('No price data available for this period'); return; }
+
+        // Build bars sorted by abs contribution
+        const allBars = [...catContribs.entries()]
+            .map(([cat, c]) => ({ symbol: cat, contributionCAD: c }))
+            .sort((a, b) => Math.abs(b.contributionCAD) - Math.abs(a.contributionCAD));
+
+        const waterfallValues = [startPortfolioCAD];
+        let runningCheck = startPortfolioCAD;
+        for (const bar of allBars) { runningCheck += bar.contributionCAD; waterfallValues.push(runningCheck); }
+        const yHigh = Math.max(...waterfallValues);
+        const yLow  = Math.min(...waterfallValues);
+        const span  = yHigh - yLow || Math.abs(startPortfolioCAD) * 0.05;
+        const floor   = Math.max(0, yLow  - span * 0.15);
+        const ceiling = yHigh + span * 0.15;
+
+        const labels       = [];
+        const floatData    = [];
+        const barColors    = [];
+        const origContribs = [];
+
+        let running = startPortfolioCAD;
+        for (const bar of allBars) {
+            const c = bar.contributionCAD, before = running, after = running + c;
+            labels.push(bar.symbol);
+            floatData.push(c >= 0 ? [before, after] : [after, before]);
+            barColors.push(c >= 0 ? 'rgba(61,138,158,0.85)' : '#fc8181');
+            origContribs.push(c);
+            running = after;
+        }
+
+        const barNetChange = running - startPortfolioCAD;
+
+        const fmtDelta = v => {
+            const sign = v >= 0 ? '+' : '-', abs = Math.abs(v);
+            if (abs >= 1e6) return `${sign}$${(abs / 1e6).toFixed(2)}M`;
+            if (abs >= 1000) return `${sign}$${(abs / 1000).toFixed(1)}k`;
+            return `${sign}$${abs.toFixed(0)}`;
+        };
+
+        const endLinePlugin = {
+            id: 'waterfallEndLine',
+            afterDraw(chart) {
+                const { ctx: c2, chartArea, scales } = chart;
+                const yEnd = scales.y.getPixelForValue(running);
+                const endColor = barNetChange >= 0 ? 'rgba(61,138,158,0.9)' : 'rgba(252,129,129,0.9)';
+                c2.save();
+                c2.setLineDash([4, 4]);
+                c2.lineWidth = 1.5;
+                c2.strokeStyle = endColor;
+                c2.beginPath();
+                c2.moveTo(chartArea.left, yEnd);
+                c2.lineTo(chartArea.right, yEnd);
+                c2.stroke();
+                c2.setLineDash([]);
+                if (showValues) {
+                    c2.font = '10px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto';
+                    c2.fillStyle = endColor;
+                    c2.textAlign = 'right';
+                    c2.fillText(fmtDelta(barNetChange), chartArea.right - 4, yEnd - 4);
+                }
+                c2.restore();
+            }
+        };
+
+        const chart = new Chart(canvas.getContext('2d'), {
+            type: 'bar',
+            data: { labels, datasets: [{ data: floatData, backgroundColor: barColors, borderColor: barColors, borderWidth: 0, borderRadius: 3 }] },
+            options: {
+                animation: false,
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: { display: false },
+                    tooltip: {
+                        callbacks: {
+                            label: ctx => {
+                                const v = origContribs[ctx.dataIndex];
+                                if (!showValues) {
+                                    const pct = endPortfolioCAD ? (v / Math.abs(endPortfolioCAD) * 100).toFixed(1) : '0.0';
+                                    return `${v >= 0 ? '+' : ''}${pct}% of portfolio`;
+                                }
+                                return `${fmtDelta(v)} CAD`;
+                            }
+                        }
+                    }
+                },
+                scales: {
+                    x: { grid: { display: false }, ticks: { color: '#aaa', font: { size: 11 } } },
+                    y: {
+                        min: floor, max: ceiling,
+                        grid: { color: 'rgba(255,255,255,0.05)' },
+                        border: { dash: [4, 4] },
+                        ticks: {
+                            display: showValues, color: '#aaa', font: { size: 10 },
+                            callback: v => {
+                                const delta = v - startPortfolioCAD;
+                                if (Math.abs(delta) < 0.5) return '$0';
+                                return fmtDelta(delta);
+                            }
+                        }
+                    }
+                }
+            },
+            plugins: [endLinePlugin],
+        });
+
+        this.portfolioCharts.set(canvasId, chart);
+    }
+
+    async renderRiskMetrics(containerId, period = '1y') {
+        const container = document.getElementById(containerId);
+        if (!container) return;
+
+        const showMsg = msg => {
+            container.innerHTML = `<div class="risk-loading">${msg}</div>`;
+        };
+        showMsg('Loading…');
+
+        const rawPositions = this.loadPortfolioData('positions');
+        const positions = rawPositions
+            ? rawPositions.filter(p => !this.portfolioExcludedSymbols.has(p.symbol?.toUpperCase()))
+            : null;
+        if (!positions?.length) { showMsg('Upload a positions CSV to see risk metrics'); return; }
+
+        const rawTrades = this.loadPortfolioData('trades');
+        const buySellTrades = (rawTrades || []).filter(t => {
+            const type   = t.type?.toLowerCase();
+            const rawQty = parseFloat(t.quantity || 0);
+            const isBuy  = type === 'buy' || type === 'purchase' || (type === 'trade' && rawQty > 0);
+            const isSell = type === 'sell' || type === 'sale'    || (type === 'trade' && rawQty < 0);
+            return (isBuy || isSell) && !this.portfolioExcludedSymbols.has(t.symbol?.toUpperCase());
+        });
+
+        const usdToCad = await this.getExchangeRate('USD', 'CAD') || 1.0;
+
+        const PERIOD_FETCH = {
+            '1y': { range: '1y', interval: '1wk' },
+            '3y': { range: '3y', interval: '1mo' },
+            '5y': { range: '5y', interval: '1mo' },
+        };
+        const { range, interval } = PERIOD_FETCH[period] || PERIOD_FETCH['1y'];
+        const annFactor = interval === '1wk' ? 52 : 12;
+
+        const positionSyms = new Set(positions.map(p => p.symbol?.toUpperCase()).filter(Boolean));
+        const tradedSyms   = new Set(buySellTrades.map(t => t.symbol?.toUpperCase()).filter(Boolean));
+        const positionBases = new Set([...positionSyms].map(s => this.stripExchange(s)));
+        const portfolioSymbols = [...new Set([
+            ...positionSyms,
+            ...[...tradedSyms].filter(s => !positionBases.has(this.stripExchange(s)))
+        ])];
+
+        let batchData = {};
+        try {
+            batchData = await window.stockAPI.fetchBatchCached([...portfolioSymbols, '^GSPC'], range, interval);
+        } catch (e) {
+            showMsg('Failed to load price data');
+            return;
+        }
+
+        const currentQtyMap = new Map();
+        for (const pos of positions) {
+            const sym = pos.symbol?.toUpperCase();
+            if (!sym) continue;
+            currentQtyMap.set(sym, (currentQtyMap.get(sym) || 0) + parseFloat(pos.quantity || 0));
+        }
+
+        const getQtyAt        = this.buildTradePositionLedger(buySellTrades);
+        const symbolsInTrades = new Set(buySellTrades.map(t => this.stripExchange(t.symbol)).filter(Boolean));
+
+        const snapTs = ts => {
+            if (interval === '1wk') {
+                const d = new Date(ts * 1000);
+                const dow = d.getUTCDay();
+                const monday = d.getUTCDate() + (dow === 0 ? -6 : 1 - dow);
+                return Math.floor(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), monday) / 1000);
+            }
+            if (interval === '1mo') {
+                const d = new Date(ts * 1000);
+                return Math.floor(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), 1) / 1000);
+            }
+            return ts;
+        };
+
+        // Build price maps for portfolio symbols
+        const priceMaps  = new Map();
+        const cadMultMap = new Map();
+        for (const sym of portfolioSymbols) {
+            const data = batchData[sym];
+            if (!data?.chart?.result?.[0]) continue;
+            const result     = data.chart.result[0];
+            const timestamps = result.timestamp || [];
+            const closes     = result.indicators?.quote?.[0]?.close || [];
+            const currency   = result.meta?.currency || 'USD';
+            const pm = new Map();
+            for (let i = 0; i < timestamps.length; i++) {
+                if (closes[i] != null && !isNaN(closes[i])) pm.set(snapTs(timestamps[i]), closes[i]);
+            }
+            priceMaps.set(sym, pm);
+            cadMultMap.set(sym, currency === 'USD' ? usdToCad : 1.0);
+        }
+
+        // S&P 500 price map
+        const spPriceMap = new Map();
+        const spData = batchData['^GSPC'];
+        if (spData?.chart?.result?.[0]) {
+            const result     = spData.chart.result[0];
+            const timestamps = result.timestamp || [];
+            const closes     = result.indicators?.quote?.[0]?.close || [];
+            for (let i = 0; i < timestamps.length; i++) {
+                if (closes[i] != null && !isNaN(closes[i])) spPriceMap.set(snapTs(timestamps[i]), closes[i]);
+            }
+        }
+
+        // Build timestamp spine from US-listed symbols
+        const usSyms = [...positionSyms].filter(s => !/\.(TO|TSX|V|VN|CN|NE)$/i.test(s) && priceMaps.has(s));
+        const refSyms = usSyms.length > 0 ? usSyms : [...positionSyms].filter(s => priceMaps.has(s));
+        const allTimestamps = [...new Set(refSyms.flatMap(s => [...priceMaps.get(s).keys()]))].sort((a, b) => a - b);
+
+        // Walk loop — pure market value
+        const lastClose = new Map();
+        const portfolioValues = [];
+        const spValues = [];
+        let lastSpClose = null;
+
+        for (const ts of allTimestamps) {
+            for (const [sym, pm] of priceMaps.entries()) {
+                if (pm.has(ts)) lastClose.set(sym, pm.get(ts));
+            }
+            if (spPriceMap.has(ts)) lastSpClose = spPriceMap.get(ts);
+
+            const dateStr = new Date(ts * 1000).toISOString().split('T')[0];
+            let total = 0, covered = 0;
+            for (const sym of portfolioSymbols) {
+                if (!priceMaps.has(sym)) continue;
+                const close = lastClose.get(sym);
+                if (close == null) continue;
+                const qty = symbolsInTrades.has(this.stripExchange(sym))
+                    ? getQtyAt(sym, dateStr)
+                    : (currentQtyMap.get(sym) || 0);
+                if (qty <= 0) continue;
+                total += qty * close * cadMultMap.get(sym);
+                covered++;
+            }
+            if (covered > 0) {
+                portfolioValues.push(total);
+                spValues.push(lastSpClose);
+            }
+        }
+
+        // Trim leading zeros
+        const firstNonZero = portfolioValues.findIndex(v => v > 0);
+        const trimPV = firstNonZero > 0 ? portfolioValues.slice(firstNonZero) : portfolioValues;
+        const trimSP = firstNonZero > 0 ? spValues.slice(firstNonZero) : spValues;
+
+        if (trimPV.length < 4) { showMsg('Insufficient data for the selected period'); return; }
+
+        // Periodic returns
+        const pvReturns = [], spReturns = [];
+        for (let i = 1; i < trimPV.length; i++) {
+            if (trimPV[i-1] > 0 && trimPV[i] > 0) pvReturns.push((trimPV[i] - trimPV[i-1]) / trimPV[i-1]);
+            if (trimSP[i] && trimSP[i-1]) spReturns.push((trimSP[i] - trimSP[i-1]) / trimSP[i-1]);
+        }
+
+        const RISK_FREE = 0.045;
+
+        // Sharpe
+        const pvMean = pvReturns.reduce((s, r) => s + r, 0) / pvReturns.length;
+        const pvVar  = pvReturns.reduce((s, r) => s + (r - pvMean) ** 2, 0) / pvReturns.length;
+        const annReturn = pvMean * annFactor;
+        const annVol    = Math.sqrt(pvVar) * Math.sqrt(annFactor);
+        const sharpe    = annVol > 0 ? (annReturn - RISK_FREE) / annVol : null;
+
+        // Beta
+        let beta = null;
+        const n = Math.min(pvReturns.length, spReturns.length);
+        if (n >= 4) {
+            const pv = pvReturns.slice(-n), sp = spReturns.slice(-n);
+            const spMean = sp.reduce((s, r) => s + r, 0) / n;
+            const pvMn   = pv.reduce((s, r) => s + r, 0) / n;
+            const cov    = pv.reduce((s, r, i) => s + (r - pvMn) * (sp[i] - spMean), 0) / n;
+            const spVar2 = sp.reduce((s, r) => s + (r - spMean) ** 2, 0) / n;
+            if (spVar2 > 0) beta = cov / spVar2;
+        }
+
+        // Max Drawdown
+        let peak = -Infinity, maxDD = 0;
+        for (const v of trimPV) {
+            if (v > peak) peak = v;
+            const dd = (peak - v) / peak;
+            if (dd > maxDD) maxDD = dd;
+        }
+
+        // Format helpers
+        const fmt2 = v => v != null ? v.toFixed(2) : '—';
+        const fmtPct = v => v != null ? `-${(v * 100).toFixed(1)}%` : '—';
+
+        // Color + hint
+        const sharpeColor = sharpe == null ? '#666' : sharpe < 0 ? '#fc8181' : sharpe < 0.5 ? '#f6ad55' : sharpe < 1 ? '#68d391' : '#48bb78';
+        const sharpeHint  = sharpe == null ? '' : sharpe < 0 ? 'Below T-bill rate' : sharpe < 0.5 ? 'Poor risk-adjusted return' : sharpe < 1 ? 'Acceptable' : sharpe < 2 ? 'Good' : 'Excellent';
+
+        const betaColor = beta == null ? '#666' : beta < 0.7 ? '#68d391' : beta < 1.3 ? '#aaa' : '#fc8181';
+        const betaHint  = beta == null ? '' : beta < 0.7 ? 'Low market exposure' : beta < 1.3 ? 'Moves with the market' : 'Amplified market swings';
+
+        const ddColor = maxDD > 0.30 ? '#fc8181' : maxDD > 0.15 ? '#f6ad55' : '#68d391';
+        const ddHint  = maxDD > 0.30 ? 'Severe drawdown' : maxDD > 0.15 ? 'Notable drawdown' : 'Moderate drawdown';
+
+        const infoIcon = (popup) => `
+            <span class="risk-info-wrap">
+                <span class="risk-info-btn">
+                    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                        <circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/>
+                    </svg>
+                </span>
+                <span class="risk-info-popup">${popup}</span>
+            </span>`;
+
+        const metricCard = (label, value, hint, color, popup) => `
+            <div class="risk-metric-card">
+                <div class="risk-metric-header">
+                    <span class="risk-metric-label">${label}</span>
+                    ${infoIcon(popup)}
+                </div>
+                <div class="risk-metric-value" style="color:${color}">${value}</div>
+                <div class="risk-metric-hint">${hint}</div>
+            </div>`;
+
+        container.innerHTML = `
+            <div class="risk-metrics-grid">
+                ${metricCard(
+                    'Sharpe Ratio', fmt2(sharpe), sharpeHint, sharpeColor,
+                    `<strong>Sharpe Ratio</strong><p>(Return − Risk-Free Rate) / Volatility. Risk-free rate assumed 4.5%.</p><p class="risk-tip-scale">Under 0: worse than T-bills · 0–0.5: poor · 0.5–1: acceptable · 1–2: good · 2+: excellent</p>`
+                )}
+                ${metricCard(
+                    'Beta', fmt2(beta), betaHint, betaColor,
+                    `<strong>Beta (vs S&P 500)</strong><p>How much your portfolio amplifies market moves. Beta 1.3 = a 10% market move causes ~13% in your portfolio.</p><p class="risk-tip-scale">Under 0.7: low exposure · 0.7–1.3: market-like · 1.3+: amplified risk</p>`
+                )}
+                ${metricCard(
+                    'Max Drawdown', fmtPct(maxDD), ddHint, ddColor,
+                    `<strong>Max Drawdown</strong><p>Largest peak-to-trough decline over the period — the worst drop you experienced before recovery.</p><p class="risk-tip-scale">Under 15%: moderate · 15–30%: notable · 30%+: severe</p>`
+                )}
+            </div>
+        `;
+    }
+
+    async renderPortfolioValue(canvasId, period = '1y', showCapital = true, showDividends = false) {
         const canvas = document.getElementById(canvasId);
         if (!canvas) return;
 
@@ -4245,12 +5138,42 @@ class StockDashboard {
             capitalEvents.sort((a, b) => a.date < b.date ? -1 : 1);
         }
 
+        // Dividend events: built independently so they add to value in both capital-on and capital-off modes.
+        // Capital-on: total + cumulativeDividends (dividend cash adds to portfolio value)
+        // Capital-off: (total - cumulativeCapital) + cumulativeDividends (same addition on top)
+        const dividendEvents = [];
+        if (showDividends && periodStartDateStr) {
+            for (const t of (rawTrades || [])) {
+                if (t.type?.toLowerCase() !== 'dividend') continue;
+                if (this.portfolioExcludedSymbols.has(t.symbol?.toUpperCase())) continue;
+                const d = t.transaction_date;
+                // Normalize to YYYY-MM-DD — raw CSV dates may include a time component
+                // ("2025-06-11 0:00") which makes them lexicographically > a plain date string,
+                // breaking the walk-loop cursor comparison.
+                const dateNorm = d.split(/[\sT]/)[0];
+                if (!dateNorm || dateNorm <= periodStartDateStr) continue;
+                let tAmtRaw = NaN;
+                if      (t.net_amount != null && t.net_amount !== '') tAmtRaw = Math.abs(parseFloat(t.net_amount));
+                else if (t.amount     != null && t.amount     !== '') tAmtRaw = Math.abs(parseFloat(t.amount));
+                else if (t.value      != null && t.value      !== '') tAmtRaw = Math.abs(parseFloat(t.value));
+                else if (t.total      != null && t.total      !== '') tAmtRaw = Math.abs(parseFloat(t.total));
+                if (isNaN(tAmtRaw) || tAmtRaw === 0) continue;
+                const sym       = t.symbol?.toUpperCase() || '';
+                const tCurrency = t.currency || (/\.(TO|TSX|V|VN|CN|NE)$/i.test(sym) ? 'CAD' : 'USD');
+                const tMult     = /\.(TO|TSX|V|VN|CN|NE)$/i.test(sym) ? 1.0 : tCurrency === 'USD' ? usdToCad : 1.0;
+                dividendEvents.push({ date: dateNorm, amount: tAmtRaw * tMult });
+            }
+            dividendEvents.sort((a, b) => a.date < b.date ? -1 : 1);
+        }
+
         // Walk through time using ledger qty at each date
         const lastClose = new Map();
         const valueSeries = [];
         const labelSeries = [];
         let cumulativeCapital = 0;
+        let cumulativeDividends = 0;
         let capIdx = 0;
+        let divIdx = 0;
 
         const fmtLabel = (ts) => {
             const d = new Date(ts * 1000);
@@ -4270,10 +5193,14 @@ class StockDashboard {
 
             const dateStr = new Date(ts * 1000).toISOString().split('T')[0];
 
-            // Advance capital cursor to current date
+            // Advance capital and dividend cursors to current date
             while (capIdx < capitalEvents.length && capitalEvents[capIdx].date <= dateStr) {
                 cumulativeCapital += capitalEvents[capIdx].delta;
                 capIdx++;
+            }
+            while (divIdx < dividendEvents.length && dividendEvents[divIdx].date <= dateStr) {
+                cumulativeDividends += dividendEvents[divIdx].amount;
+                divIdx++;
             }
 
             let total = 0, covered = 0;
@@ -4293,7 +5220,8 @@ class StockDashboard {
             }
 
             if (covered > 0) {
-                valueSeries.push(showCapital ? total : total - cumulativeCapital);
+                const baseValue = showCapital ? total : total - cumulativeCapital;
+                valueSeries.push(baseValue + cumulativeDividends);
                 labelSeries.push(fmtLabel(ts));
             }
         }
@@ -6758,7 +7686,7 @@ class StockDashboard {
                     const chart = this.charts.get(`wl-${symbol}`);
                     if (chart) chart.resize();
                 });
-            } else if (e.target.closest('.stock-header, .primary-metric')) {
+            } else if (e.target.closest('.stock-header, .stock-metrics')) {
                 card.classList.add('collapsed');
                 if (!collapsedStocks.includes(symbol)) collapsedStocks.push(symbol);
                 this.saveCollapsedStocks(collapsedStocks);
