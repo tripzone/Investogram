@@ -3972,6 +3972,7 @@ class StockDashboard {
         }
 
         const netChange = endPortfolioCAD - startPortfolioCAD;
+        const barNetChange = running - startPortfolioCAD; // bar running total, may differ from netChange
 
         const fmtVal = v => {
             const abs = Math.abs(v);
@@ -3987,6 +3988,31 @@ class StockDashboard {
             return `${sign}$${abs.toFixed(0)}`;
         };
 
+        // Dotted line at the final waterfall position with net-change label
+        const endLinePlugin = {
+            id: 'waterfallEndLine',
+            afterDraw(chart) {
+                const { ctx: c2, chartArea, scales } = chart;
+                const yEnd = scales.y.getPixelForValue(running);
+                const endColor = barNetChange >= 0 ? 'rgba(61,138,158,0.9)' : 'rgba(252,129,129,0.9)';
+                c2.save();
+                c2.setLineDash([4, 4]);
+                c2.lineWidth = 1.5;
+                c2.strokeStyle = endColor;
+                c2.beginPath();
+                c2.moveTo(chartArea.left, yEnd);
+                c2.lineTo(chartArea.right, yEnd);
+                c2.stroke();
+                c2.setLineDash([]);
+                if (showValues) {
+                    c2.font = '10px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto';
+                    c2.fillStyle = endColor;
+                    c2.textAlign = 'right';
+                    c2.fillText(fmtDelta(barNetChange), chartArea.right - 4, yEnd - 4);
+                }
+                c2.restore();
+            }
+        };
 
         const ctx = canvas.getContext('2d');
         const chart = new Chart(ctx, {
@@ -4043,6 +4069,7 @@ class StockDashboard {
                     }
                 }
             },
+            plugins: [endLinePlugin],
         });
 
         this.portfolioCharts.set(canvasId, chart);
