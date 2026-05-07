@@ -28,8 +28,10 @@ class StockDashboard {
         this.latestPrices = null; // Map<symbol, { currentPrice, currency }>
         this.latestPricesState = 'idle'; // 'idle' | 'loading' | 'active' | 'error'
         this.useCurrentPrices = true; // clock toggle: true = use market prices, false = use acquisition cost
+        this.portfolioValueShowCapital = true; // portfolio value toggle: show actual historical qty vs current-holdings-only
         this.portfolioExcludedSymbols = this.loadPortfolioExcludedSymbols();
         this._holdingsOverviewSort = { col: 'portfolioPct', dir: 'desc' };
+        this._pruneOldAICache();
         this.availableGraphs = [
             {
                 id: 'asset-allocation',
@@ -112,6 +114,20 @@ class StockDashboard {
                 cardTitle: 'Holdings Overview',
                 description: 'All current positions in a sortable table: value, years held, returns, IRR, CAGR',
                 heading: 'Position Analysis'
+            },
+            {
+                id: 'portfolio-contribution',
+                title: 'P&L Contribution',
+                cardTitle: 'P&L Contribution',
+                description: 'Per-stock P&L contribution over a selected period — top 9 stocks + Other',
+                heading: 'Performance'
+            },
+            {
+                id: 'portfolio-value',
+                title: 'Portfolio Value',
+                cardTitle: 'Portfolio Value',
+                description: 'Total portfolio value over time in CAD',
+                heading: 'Performance'
             }
         ];
     }
@@ -1067,19 +1083,24 @@ class StockDashboard {
         const body = document.getElementById('ai-analysis-body');
         if (!body) return;
 
-        // Check daily cache
+        // Daily cache: fixed key with date embedded in value so setItem always replaces
         const today = new Date().toISOString().split('T')[0];
-        const cached = localStorage.getItem(`ai_portfolio_analysis_${today}`);
-        if (cached) {
-            body.innerHTML = this._renderPortfolioAnalysisText(cached);
-            const portfolioView = document.getElementById('portfolioView');
-            if (portfolioView && !portfolioView.classList.contains('hidden')) {
-                this._measureAnalysisToggle();
-            } else {
-                this._pendingAnalysisMeasure = true;
+        try {
+            const raw = localStorage.getItem('ai_portfolio_analysis');
+            if (raw) {
+                const entry = JSON.parse(raw);
+                if (entry.date === today) {
+                    body.innerHTML = this._renderPortfolioAnalysisText(entry.analysis);
+                    const portfolioView = document.getElementById('portfolioView');
+                    if (portfolioView && !portfolioView.classList.contains('hidden')) {
+                        this._measureAnalysisToggle();
+                    } else {
+                        this._pendingAnalysisMeasure = true;
+                    }
+                    return;
+                }
             }
-            return;
-        }
+        } catch { /* ignore parse errors */ }
 
         try {
             const resp = await fetch('/api/analyze', {
@@ -1091,7 +1112,7 @@ class StockDashboard {
             if (data.error) {
                 body.textContent = 'Analysis unavailable.';
             } else {
-                localStorage.setItem(`ai_portfolio_analysis_${today}`, data.analysis);
+                localStorage.setItem('ai_portfolio_analysis', JSON.stringify({ date: today, analysis: data.analysis }));
                 body.innerHTML = this._renderPortfolioAnalysisText(data.analysis);
             }
             const portfolioView = document.getElementById('portfolioView');
@@ -1123,8 +1144,7 @@ class StockDashboard {
         if (!raw) return;
         const positions = raw.filter(p => !this.portfolioExcludedSymbols.has(p.symbol?.toUpperCase()));
         if (!positions.length) return;
-        const today = new Date().toISOString().split('T')[0];
-        localStorage.removeItem(`ai_portfolio_analysis_${today}`);
+        localStorage.removeItem('ai_portfolio_analysis');
         const body = document.getElementById('ai-analysis-body');
         if (body) {
             body.innerHTML = '<span class="ai-analysis-loading">Analyzing portfolio...</span>';
@@ -1217,6 +1237,8 @@ class StockDashboard {
             const isAllocationGraph = graphId === 'asset-allocation' || graphId.startsWith('category-');
             const isPositionDeepDive = graphId === 'position-deep-dive';
             const isHoldingsOverview = graphId === 'holdings-overview';
+            const isContributionGraph = graphId === 'portfolio-contribution';
+            const isPortfolioValueGraph = graphId === 'portfolio-value';
 
             // Timeframe row (performance graph only — market activity shares one row with mode)
             const SHORT_TERM_TFS = new Set(['7d', '28d', '3m']);
@@ -1285,6 +1307,29 @@ class StockDashboard {
                             <input type="text" class="ticker-selector-input" placeholder="Select stock..." autocomplete="off">
                             <div class="ticker-dropdown hidden"><div class="ticker-list"></div></div>
                         </div>
+                    </div>
+                `;
+            } else if (isContributionGraph) {
+                modeRow = `
+                    <div class="graph-header-mode">
+                        <button class="timeframe-btn" data-timeframe="7d">7D</button>
+                        <button class="timeframe-btn" data-timeframe="28d">28D</button>
+                        <button class="timeframe-btn" data-timeframe="6m">6M</button>
+                        <button class="timeframe-btn active" data-timeframe="1y">1Y</button>
+                        <button class="timeframe-btn" data-timeframe="3y">3Y</button>
+                        <button class="timeframe-btn" data-timeframe="5y">5Y</button>
+                    </div>
+                `;
+            } else if (isPortfolioValueGraph) {
+                modeRow = `
+                    <div class="graph-header-mode">
+                        <button class="timeframe-btn" data-timeframe="7d">7D</button>
+                        <button class="timeframe-btn" data-timeframe="28d">28D</button>
+                        <button class="timeframe-btn" data-timeframe="6m">6M</button>
+                        <button class="timeframe-btn active" data-timeframe="1y">1Y</button>
+                        <button class="timeframe-btn" data-timeframe="3y">3Y</button>
+                        <button class="timeframe-btn" data-timeframe="5y">5Y</button>
+                        <button class="pv-capital-toggle${this.portfolioValueShowCapital ? ' active' : ''}" title="Toggle capital injections">Capital</button>
                     </div>
                 `;
             }
@@ -1420,6 +1465,38 @@ class StockDashboard {
                 this.setupTickerSelector(graphCard, canvasId, graphId);
             }
 
+            if (isContributionGraph) {
+                const timeframeBtns = graphCard.querySelectorAll('.timeframe-btn');
+                timeframeBtns.forEach(btn => btn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    timeframeBtns.forEach(b => b.classList.remove('active'));
+                    btn.classList.add('active');
+                    this.renderPortfolioContribution(canvasId, btn.dataset.timeframe);
+                }));
+            }
+
+            if (isPortfolioValueGraph) {
+                const timeframeBtns = graphCard.querySelectorAll('.timeframe-btn');
+                timeframeBtns.forEach(btn => btn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    timeframeBtns.forEach(b => b.classList.remove('active'));
+                    btn.classList.add('active');
+                    const period = btn.dataset.timeframe;
+                    this.renderPortfolioValue(canvasId, period, this.portfolioValueShowCapital);
+                }));
+
+                const capitalToggle = graphCard.querySelector('.pv-capital-toggle');
+                if (capitalToggle) {
+                    capitalToggle.addEventListener('click', (e) => {
+                        e.stopPropagation();
+                        this.portfolioValueShowCapital = !this.portfolioValueShowCapital;
+                        capitalToggle.classList.toggle('active', this.portfolioValueShowCapital);
+                        const activePeriod = graphCard.querySelector('.timeframe-btn.active')?.dataset.timeframe || '1y';
+                        this.renderPortfolioValue(canvasId, activePeriod, this.portfolioValueShowCapital);
+                    });
+                }
+            }
+
             // Add resize functionality
             const resizeHandle = graphCard.querySelector('.graph-resize-handle');
             resizeHandle.addEventListener('mousedown', (e) => this.handleGraphResizeStart(e, graphId));
@@ -1533,6 +1610,18 @@ class StockDashboard {
             case 'holdings-overview':
                 await this.renderHoldingsOverview(canvasId);
                 break;
+            case 'portfolio-contribution': {
+                const card = document.getElementById(`portfolio-graph-${graphId}`);
+                const period = card?.querySelector('.timeframe-btn.active')?.dataset.timeframe || '1y';
+                await this.renderPortfolioContribution(canvasId, period);
+                break;
+            }
+            case 'portfolio-value': {
+                const card = document.getElementById(`portfolio-graph-${graphId}`);
+                const period = card?.querySelector('.timeframe-btn.active')?.dataset.timeframe || '1y';
+                await this.renderPortfolioValue(canvasId, period, this.portfolioValueShowCapital);
+                break;
+            }
             default: {
                 const canvas = document.getElementById(canvasId);
                 if (canvas) {
@@ -1572,6 +1661,12 @@ class StockDashboard {
                     this.renderPositionDeepDive(canvasId, ticker);
                 } else if (graphId === 'holdings-overview') {
                     this.renderHoldingsOverview(canvasId);
+                } else if (graphId === 'portfolio-contribution') {
+                    const period = graphCard?.querySelector('.timeframe-btn.active')?.dataset.timeframe || '1y';
+                    this.renderPortfolioContribution(canvasId, period);
+                } else if (graphId === 'portfolio-value') {
+                    const period = graphCard?.querySelector('.timeframe-btn.active')?.dataset.timeframe || '1y';
+                    this.renderPortfolioValue(canvasId, period, this.portfolioValueShowCapital);
                 } else if (graphId === 'portfolio-performance') {
                     const mode = graphCard?.querySelector('.mode-btn.active')?.dataset.mode || 'twr';
                     const tf = activeTimeframeBtn?.dataset.timeframe || '1y';
@@ -2221,9 +2316,11 @@ class StockDashboard {
         const lt1yr = yearsHeld !== null && yearsHeld < 1
             ? rowStat('', '< 1 yr', 'pos-stat-stale') : '';
 
+        const showValues = this.showValues;
+
         const returnsCol = colSection('Returns', [
             priceReturnPct != null ? rowStat('Price Return', fmtPct(priceReturnPct), sign(priceReturnPct)) : '',
-            totalDividendsCAD > 0 ? rowStat('Total Dividends', fmtCAD(totalDividendsCAD), 'pos-stat-pos') : '',
+            showValues && totalDividendsCAD > 0 ? rowStat('Total Dividends', fmtCAD(totalDividendsCAD), 'pos-stat-pos') : '',
             totalReturnPct != null ? rowStat('Total Return', fmtPct(totalReturnPct), sign(totalReturnPct)) : '',
         ]);
 
@@ -2257,11 +2354,11 @@ class StockDashboard {
             factsSection([
                 qty != null     ? stat('Shares Held',      fmtQty(qty)) : '',
                 portfolioPct != null ? stat('Portfolio Weight', portfolioPct.toFixed(2) + '%') : '',
-                costBasisCAD != null ? stat('Cost Basis',    fmtCAD(costBasisCAD)) : '',
-                currentValueCAD != null ? stat('Current Value', fmtCAD(currentValueCAD), usingLatest ? '' : 'pos-stat-stale') : '',
+                showValues && costBasisCAD != null ? stat('Cost Basis',    fmtCAD(costBasisCAD)) : '',
+                showValues && currentValueCAD != null ? stat('Current Value', fmtCAD(currentValueCAD), usingLatest ? '' : 'pos-stat-stale') : '',
                 firstBuyDate ? stat('Held Since', firstBuyDate.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' })) : '',
                 yearsHeld != null ? stat('Years Held', yearsHeld.toFixed(1) + 'y') : '',
-                totalPnlCAD != null ? stat('Total P&L', (totalPnlCAD >= 0 ? '+' : '') + fmtCAD(totalPnlCAD), sign(totalPnlCAD)) : '',
+                showValues && totalPnlCAD != null ? stat('Total P&L', (totalPnlCAD >= 0 ? '+' : '') + fmtCAD(totalPnlCAD), sign(totalPnlCAD)) : '',
             ]),
             [returnsCol, irrCol, cagrCol, wdCol].some(Boolean)
                 ? `<div class="pos-sections-row">${returnsCol}${irrCol}${cagrCol}${wdCol}</div>`
@@ -3518,6 +3615,7 @@ class StockDashboard {
         });
 
         // Formatters
+        const showValues = this.showValues;
         const fmtCAD  = v => `$${Math.abs(v).toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
         const dash    = `<span class="ho-stale">—</span>`;
         const fmtPct  = v => v != null ? `${v >= 0 ? '+' : ''}${v.toFixed(1)}%` : dash;
@@ -3531,14 +3629,13 @@ class StockDashboard {
         const tableRows = rows.map(r => {
             const lt1yr   = r.yearsHeld !== null && r.yearsHeld < 1;
             const pnlSign = r.totalPnlCAD >= 0 ? '+' : '';
-            // Value cell: color by P&L direction when using live prices; mute when using cost basis
             const valueCls = usingLatest ? clr(r.totalPnlCAD) : 'ho-stale';
             return `<tr class="ho-row">
                 <td class="ho-td ho-symbol">${r.symbol}</td>
-                <td class="ho-td ${valueCls}">${fmtCAD(r.currentValueCAD)}</td>
+                ${showValues ? `<td class="ho-td ${valueCls}">${fmtCAD(r.currentValueCAD)}</td>` : ''}
                 <td class="ho-td">${fmtYrs(r.weightedYears)}</td>
                 <td class="ho-td">${r.portfolioPct != null ? r.portfolioPct.toFixed(1) + '%' : dash}</td>
-                <td class="ho-td ${clr(r.totalPnlCAD)}">${pnlSign}${fmtCAD(r.totalPnlCAD)}</td>
+                ${showValues ? `<td class="ho-td ${clr(r.totalPnlCAD)}">${pnlSign}${fmtCAD(r.totalPnlCAD)}</td>` : ''}
                 <td class="ho-td ${clr(r.priceReturnPct)}">${fmtPct(r.priceReturnPct)}</td>
                 <td class="ho-td ${r.divReturnPct != null ? 'ho-pos' : ''}">${fmtPct(r.divReturnPct)}</td>
                 <td class="ho-td ${clr(r.totalReturnPct)}">${fmtPct(r.totalReturnPct)}</td>
@@ -3552,10 +3649,10 @@ class StockDashboard {
                 <table class="ho-table">
                     <thead><tr>
                         ${th('Symbol', 'symbol')}
-                        ${th('Value', 'currentValueCAD')}
+                        ${showValues ? th('Value', 'currentValueCAD') : ''}
                         ${th('Avg Yrs', 'weightedYears')}
                         ${th('% Port', 'portfolioPct')}
-                        ${th('Total P&L', 'totalPnlCAD')}
+                        ${showValues ? th('Total P&L', 'totalPnlCAD') : ''}
                         ${th('Price Rtn', 'priceReturnPct')}
                         ${th('Div Rtn', 'divReturnPct')}
                         ${th('Total Rtn', 'totalReturnPct')}
@@ -3591,6 +3688,693 @@ class StockDashboard {
                 this.renderPositionDeepDive(deepDiveCanvasId, symbol);
             });
         });
+    }
+
+    // Replays buy/sell trades to produce getQtyAt(sym, dateStr) — the number
+    // of shares held in a symbol on any given date (YYYY-MM-DD).
+    // Keyed by stripExchange(sym) so "SHOP" trades match "SHOP.TO" positions.
+    buildTradePositionLedger(buySellTrades) {
+        const events = new Map(); // base → [{date, delta}] sorted ascending by date
+        for (const t of buySellTrades) {
+            const base   = this.stripExchange(t.symbol);
+            const type   = t.type?.toLowerCase();
+            if (!base || !t.transaction_date) continue;
+            const rawQty = parseFloat(t.quantity || 0);
+            if (!rawQty) continue;
+            const isBuy  = type === 'buy'  || type === 'purchase'
+                        || (type === 'trade' && rawQty > 0);
+            const isSell = type === 'sell' || type === 'sale'
+                        || (type === 'trade' && rawQty < 0);
+            if (!isBuy && !isSell) continue;
+            const delta = isBuy ? Math.abs(rawQty) : -Math.abs(rawQty);
+            if (!events.has(base)) events.set(base, []);
+            events.get(base).push({ date: t.transaction_date, delta });
+        }
+        for (const arr of events.values()) arr.sort((a, b) => a.date < b.date ? -1 : 1);
+        return (sym, dateStr) => {
+            const base = this.stripExchange(sym);
+            const arr  = events.get(base) || [];
+            let qty = 0;
+            for (const e of arr) {
+                if (e.date <= dateStr) qty += e.delta;
+                else break;
+            }
+            return Math.max(0, qty);
+        };
+    }
+
+    async renderPortfolioContribution(canvasId, period = '1y') {
+        const canvas = document.getElementById(canvasId);
+        if (!canvas) return;
+
+        const showValues = this.showValues;
+
+        const showMsg = msg => {
+            const ctx = canvas.getContext('2d');
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            ctx.fillStyle = '#666';
+            ctx.font = '13px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto';
+            ctx.textAlign = 'center';
+            ctx.fillText(msg, canvas.width / 2, canvas.height / 2);
+        };
+
+        const rawPositions = this.loadPortfolioData('positions');
+        const positions = rawPositions
+            ? rawPositions.filter(p => !this.portfolioExcludedSymbols.has(p.symbol?.toUpperCase()))
+            : null;
+
+        if (!positions || positions.length === 0) {
+            showMsg('Upload a positions CSV to see P&L contribution');
+            return;
+        }
+
+        const existing = this.portfolioCharts.get(canvasId);
+        if (existing) { existing.destroy(); this.portfolioCharts.delete(canvasId); }
+
+        showMsg('Loading…');
+
+        const usdToCad = await this.getExchangeRate('USD', 'CAD') || 1.0;
+
+        const PERIOD_FETCH = {
+            '7d':  { range: '5d',  interval: '1d' },
+            '28d': { range: '1mo', interval: '1d' },
+            '6m':  { range: '6mo', interval: '1d' },
+            '1y':  { range: '1y',  interval: '1wk' },
+            '3y':  { range: '3y',  interval: '1mo' },
+            '5y':  { range: '5y',  interval: '1mo' },
+        };
+        const PERIOD_LABELS = {
+            '7d': '7D ago', '28d': '28D ago', '6m': '6M ago',
+            '1y': '1Y ago', '3y': '3Y ago', '5y': '5Y ago',
+        };
+
+        const { range, interval } = PERIOD_FETCH[period] || PERIOD_FETCH['1y'];
+
+        // Only process currently-held positions — exited stocks are excluded per user intent
+        const rawTrades = this.loadPortfolioData('trades');
+        const buySellTrades = (rawTrades || []).filter(t => {
+            const type   = t.type?.toLowerCase();
+            const rawQty = parseFloat(t.quantity || 0);
+            const isBuy  = type === 'buy' || type === 'purchase' || (type === 'trade' && rawQty > 0);
+            const isSell = type === 'sell' || type === 'sale'    || (type === 'trade' && rawQty < 0);
+            return (isBuy || isSell) && !this.portfolioExcludedSymbols.has(t.symbol?.toUpperCase());
+        });
+
+        // Current qty per symbol from positions CSV (authoritative for current holdings)
+        const currentQty = new Map();
+        for (const pos of positions) {
+            const sym = pos.symbol?.toUpperCase();
+            if (!sym) continue;
+            currentQty.set(sym, (currentQty.get(sym) || 0) + parseFloat(pos.quantity || 0));
+        }
+        const positionSyms = [...currentQty.keys()].filter(sym => (currentQty.get(sym) || 0) > 0);
+
+        let batchData = {};
+        try {
+            batchData = await window.stockAPI.fetchBatchCached(positionSyms, range, interval);
+        } catch (e) {
+            console.error('Contribution batch fetch failed:', e);
+            showMsg('Failed to load price data');
+            return;
+        }
+
+        // Trade ledger + per-symbol trade index for buy-cost lookup.
+        // Both are keyed by stripExchange so "SHOP" trades match "SHOP.TO" positions.
+        const getQtyAt        = this.buildTradePositionLedger(buySellTrades);
+        const symbolsInTrades = new Set(buySellTrades.map(t => this.stripExchange(t.symbol)).filter(Boolean));
+        const tradesByBase    = new Map();
+        for (const t of buySellTrades) {
+            const base = this.stripExchange(t.symbol);
+            if (!base) continue;
+            if (!tradesByBase.has(base)) tradesByBase.set(base, []);
+            tradesByBase.get(base).push(t);
+        }
+
+        let startPortfolioCAD = 0;
+        let endPortfolioCAD   = 0;
+        let totalNetCapital   = 0;
+        const contributions   = [];
+
+        for (const sym of positionSyms) {
+            const endQty = currentQty.get(sym) || 0;
+            if (!endQty) continue;
+
+            const data = batchData[sym];
+            if (!data?.chart?.result?.[0]) continue;
+
+            const result     = data.chart.result[0];
+            const meta       = result.meta;
+            const timestamps = result.timestamp || [];
+            const closes     = result.indicators?.quote?.[0]?.close || [];
+
+            // Period start = first valid close
+            let startPrice = null, startDateStr = null;
+            for (let i = 0; i < closes.length; i++) {
+                if (closes[i] != null && !isNaN(closes[i])) {
+                    startPrice   = closes[i];
+                    startDateStr = new Date(timestamps[i] * 1000).toISOString().split('T')[0];
+                    break;
+                }
+            }
+            if (!startPrice || !startDateStr) continue;
+
+            const currentPrice = meta.regularMarketPrice;
+            if (!currentPrice) continue;
+
+            // Infer currency from metadata; fall back to CAD for known Canadian exchange suffixes
+            // so .TO stocks aren't accidentally converted USD→CAD when metadata is missing.
+            const rawCurrency = meta.currency;
+            const currency    = rawCurrency || (/\.(TO|TSX|V|VN|CN|NE)$/i.test(sym) ? 'CAD' : 'USD');
+            const cadMult     = currency === 'USD' ? usdToCad : 1.0;
+
+            const base = this.stripExchange(sym);
+            const hasTradeHistory = symbolsInTrades.has(base);
+
+            // If trade history exists but is incomplete (ledger total < positions CSV qty),
+            // cap to what the ledger accounts for — we can't compute P&L on shares with no cost basis.
+            const ledgerTotalQty    = hasTradeHistory ? getQtyAt(sym, '2099-12-31') : endQty;
+            const effectiveEndQty   = Math.min(endQty, ledgerTotalQty);
+
+            if (hasTradeHistory && ledgerTotalQty < endQty) {
+                console.warn(`[Contribution] ${sym}: ledger accounts for ${ledgerTotalQty} shares, positions CSV has ${endQty} — capping to ${effectiveEndQty} (${endQty - ledgerTotalQty} shares excluded, no trade records)`);
+            }
+
+            // startQty: qty held at period start, capped at effectiveEndQty so trimmed positions only
+            // reflect the P&L of shares still held. Trades ON startDateStr are included in the
+            // starting position (ledger uses <=); they are excluded from netCapital (uses >).
+            const rawStartQty = hasTradeHistory ? getQtyAt(sym, startDateStr) : effectiveEndQty;
+            const startQty    = Math.min(rawStartQty, effectiveEndQty);
+
+            // netCapital: net cash flow from trades STRICTLY AFTER the period start.
+            // Buys increase it (cash deployed), sells decrease it (cash returned).
+            // Netting sells is necessary: sold shares appear in startValue but not
+            // endValue, so without netting their sell proceeds the formula treats them
+            // as losses when they may have been profitable.
+            // Using > (not >=) avoids double-counting shares bought on startDateStr.
+            let netCapital = 0;
+            const tradesForBase = tradesByBase.get(base) || [];
+            for (const t of tradesForBase) {
+                if (!t.transaction_date || t.transaction_date <= startDateStr) continue;
+                const type   = t.type?.toLowerCase();
+                const rawQty = parseFloat(t.quantity || 0);
+                const isBuy  = type === 'buy' || type === 'purchase' || (type === 'trade' && rawQty > 0);
+                const isSell = type === 'sell' || type === 'sale'    || (type === 'trade' && rawQty < 0);
+                if (!isBuy && !isSell) continue;
+                let tAmtRaw = NaN;
+                if      (t.net_amount != null && t.net_amount !== '') tAmtRaw = Math.abs(parseFloat(t.net_amount));
+                else if (t.amount     != null && t.amount     !== '') tAmtRaw = Math.abs(parseFloat(t.amount));
+                else if (t.value      != null && t.value      !== '') tAmtRaw = Math.abs(parseFloat(t.value));
+                else if (t.total      != null && t.total      !== '') tAmtRaw = Math.abs(parseFloat(t.total));
+                else if (t.total_cost != null && t.total_cost !== '') tAmtRaw = Math.abs(parseFloat(t.total_cost));
+                else if (rawQty && t.price) tAmtRaw = Math.abs(rawQty) * Math.abs(parseFloat(t.price));
+                if (isNaN(tAmtRaw) || tAmtRaw === 0) continue;
+                const tCurrency = t.currency || currency;
+                const tMult     = /\.(TO|TSX|V|VN|CN|NE)$/i.test(t.symbol || '') ? 1.0
+                                : tCurrency === 'USD' ? usdToCad : 1.0;
+                netCapital += (isBuy ? 1 : -1) * tAmtRaw * tMult;
+            }
+
+            // P&L = (what current shares are worth now) - (what those same shares were worth at period start)
+            //       - (new cash deployed for shares acquired during the period)
+            const startValueCAD   = startQty        * startPrice   * cadMult;
+            const endValueCAD     = effectiveEndQty  * currentPrice * cadMult;
+            const contributionCAD = endValueCAD - startValueCAD - netCapital;
+
+
+            startPortfolioCAD += startValueCAD;
+            endPortfolioCAD   += endValueCAD;
+            totalNetCapital   += netCapital;
+
+            contributions.push({ symbol: sym, contributionCAD });
+        }
+
+        // Merge SHOP + SHOP.TO (same company, different exchange listings) into one bar.
+        // Prefer the exchange-qualified symbol (e.g. SHOP.TO) as the display label.
+        const contribByBase = new Map();
+        for (const c of contributions) {
+            const base = this.stripExchange(c.symbol);
+            if (!contribByBase.has(base)) {
+                contribByBase.set(base, { symbol: c.symbol, contributionCAD: 0 });
+            }
+            const g = contribByBase.get(base);
+            g.contributionCAD += c.contributionCAD;
+            if (c.symbol.includes('.')) g.symbol = c.symbol; // prefer exchange-qualified label
+        }
+        const dedupedContributions = [...contribByBase.values()];
+
+        if (dedupedContributions.length === 0) {
+            showMsg('No price data available for this period');
+            return;
+        }
+
+        // Sort by abs contribution, top 9 + Other
+        dedupedContributions.sort((a, b) => Math.abs(b.contributionCAD) - Math.abs(a.contributionCAD));
+        const allBars = dedupedContributions.slice(0, 9);
+        const rest = dedupedContributions.slice(9);
+        if (rest.length > 0) {
+            allBars.push({
+                symbol: 'Other',
+                contributionCAD: rest.reduce((s, c) => s + c.contributionCAD, 0),
+                isOther: true,
+            });
+        }
+
+        // Compute Y range from bar traversal only — endPortfolioCAD can diverge from
+        // the bar running total (stocks without trade history excluded from bars) so
+        // including it would push the scale beyond what the bars actually cover.
+        const waterfallValues = [startPortfolioCAD];
+        let runningCheck = startPortfolioCAD;
+        for (const bar of allBars) { runningCheck += bar.contributionCAD; waterfallValues.push(runningCheck); }
+        const yHigh = Math.max(...waterfallValues);
+        const yLow  = Math.min(...waterfallValues);
+        const span  = yHigh - yLow || Math.abs(startPortfolioCAD) * 0.05;
+        const floor   = Math.max(0, yLow  - span * 0.15);
+        const ceiling = yHigh + span * 0.15;
+
+        // Build waterfall: floating contribution bars only (no Start/End bars)
+        const labels       = [];
+        const floatData    = [];
+        const barColors    = [];
+        const origContribs = [];
+
+        let running = startPortfolioCAD;
+        for (const bar of allBars) {
+            const c      = bar.contributionCAD;
+            const before = running;
+            const after  = running + c;
+            labels.push(bar.symbol);
+            floatData.push(c >= 0 ? [before, after] : [after, before]);
+            barColors.push(bar.isOther
+                ? (c >= 0 ? 'rgba(61,138,158,0.6)' : '#c96a6a')
+                : (c >= 0 ? 'rgba(61,138,158,0.85)' : '#fc8181'));
+            origContribs.push(c);
+            running = after;
+        }
+
+        const netChange = endPortfolioCAD - startPortfolioCAD;
+
+        const fmtVal = v => {
+            const abs = Math.abs(v);
+            if (abs >= 1e6) return `$${(v / 1e6).toFixed(2)}M`;
+            if (abs >= 1000) return `$${(v / 1000).toFixed(1)}k`;
+            return `$${v.toFixed(0)}`;
+        };
+        const fmtDelta = v => {
+            const sign = v >= 0 ? '+' : '-';
+            const abs  = Math.abs(v);
+            if (abs >= 1e6) return `${sign}$${(abs / 1e6).toFixed(2)}M`;
+            if (abs >= 1000) return `${sign}$${(abs / 1000).toFixed(1)}k`;
+            return `${sign}$${abs.toFixed(0)}`;
+        };
+
+
+        const ctx = canvas.getContext('2d');
+        const chart = new Chart(ctx, {
+            type: 'bar',
+            data: {
+                labels,
+                datasets: [{
+                    data: floatData,
+                    backgroundColor: barColors,
+                    borderColor: barColors,
+                    borderWidth: 0,
+                    borderRadius: 3,
+                }]
+            },
+            options: {
+                animation: false,
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: { display: false },
+                    tooltip: {
+                        callbacks: {
+                            label: (ctx) => {
+                                const v = origContribs[ctx.dataIndex];
+                                if (!showValues) {
+                                    const pct = endPortfolioCAD ? (v / Math.abs(endPortfolioCAD) * 100).toFixed(1) : '0.0';
+                                    return `${v >= 0 ? '+' : ''}${pct}% of portfolio`;
+                                }
+                                return `${fmtDelta(v)} CAD`;
+                            }
+                        }
+                    }
+                },
+                scales: {
+                    x: {
+                        grid: { display: false },
+                        ticks: { color: '#aaa', font: { size: 11 } }
+                    },
+                    y: {
+                        min: floor,
+                        max: ceiling,
+                        grid: { color: 'rgba(255,255,255,0.05)' },
+                        border: { dash: [4, 4] },
+                        ticks: {
+                            display: showValues,
+                            color: '#aaa',
+                            font: { size: 10 },
+                            callback: v => {
+                                const delta = v - startPortfolioCAD;
+                                if (Math.abs(delta) < 0.5) return '$0';
+                                return fmtDelta(delta);
+                            }
+                        }
+                    }
+                }
+            },
+        });
+
+        this.portfolioCharts.set(canvasId, chart);
+    }
+
+    async renderPortfolioValue(canvasId, period = '1y', showCapital = true) {
+        const canvas = document.getElementById(canvasId);
+        if (!canvas) return;
+
+        const showValues = this.showValues;
+
+        const showMsg = msg => {
+            const ctx = canvas.getContext('2d');
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            ctx.fillStyle = '#666';
+            ctx.font = '13px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto';
+            ctx.textAlign = 'center';
+            ctx.fillText(msg, canvas.width / 2, canvas.height / 2);
+        };
+
+        const rawPositions = this.loadPortfolioData('positions');
+        const positions = rawPositions
+            ? rawPositions.filter(p => !this.portfolioExcludedSymbols.has(p.symbol?.toUpperCase()))
+            : null;
+
+        if (!positions || positions.length === 0) {
+            showMsg('Upload a positions CSV to see portfolio value');
+            return;
+        }
+
+        const existing = this.portfolioCharts.get(canvasId);
+        if (existing) { existing.destroy(); this.portfolioCharts.delete(canvasId); }
+
+        showMsg('Loading…');
+
+        const usdToCad = await this.getExchangeRate('USD', 'CAD') || 1.0;
+
+        const PERIOD_FETCH = {
+            '7d':  { range: '5d',  interval: '1d' },
+            '28d': { range: '1mo', interval: '1d' },
+            '6m':  { range: '6mo', interval: '1d' },
+            '1y':  { range: '1y',  interval: '1wk' },
+            '3y':  { range: '3y',  interval: '1mo' },
+            '5y':  { range: '5y',  interval: '1mo' },
+        };
+
+        const { range, interval } = PERIOD_FETCH[period] || PERIOD_FETCH['1y'];
+
+        // Include sold stocks: use all symbols from trades history, not just current positions
+        const rawTrades = this.loadPortfolioData('trades');
+        const buySellTrades = (rawTrades || []).filter(t => {
+            const type   = t.type?.toLowerCase();
+            const rawQty = parseFloat(t.quantity || 0);
+            const isBuy  = type === 'buy' || type === 'purchase' || (type === 'trade' && rawQty > 0);
+            const isSell = type === 'sell' || type === 'sale'    || (type === 'trade' && rawQty < 0);
+            return (isBuy || isSell) && !this.portfolioExcludedSymbols.has(t.symbol?.toUpperCase());
+        });
+        const positionSyms = new Set(positions.map(p => p.symbol?.toUpperCase()).filter(Boolean));
+        const tradedSyms   = new Set(buySellTrades.map(t => t.symbol?.toUpperCase()).filter(Boolean));
+        // Exclude tradedSyms whose base symbol is already covered by a positionSyms entry
+        // (e.g. SHOP when SHOP.TO is in positions) to avoid double-counting.
+        const positionBases = new Set([...positionSyms].map(s => this.stripExchange(s)));
+        const allSymbols = [...new Set([
+            ...positionSyms,
+            ...[...tradedSyms].filter(s => !positionBases.has(this.stripExchange(s)))
+        ])];
+
+        let batchData = {};
+        try {
+            // fetchBatchCached: shared cache means renderPortfolioContribution on the same
+            // period has already populated this — no second network round-trip.
+            batchData = await window.stockAPI.fetchBatchCached(allSymbols, range, interval);
+        } catch (e) {
+            console.error('Portfolio value batch fetch failed:', e);
+            showMsg('Failed to load price data');
+            return;
+        }
+
+        // Current qty per symbol (fallback for symbols with no trade history)
+        const currentQtyMap = new Map();
+        for (const pos of positions) {
+            const sym = pos.symbol?.toUpperCase();
+            if (!sym) continue;
+            currentQtyMap.set(sym, (currentQtyMap.get(sym) || 0) + parseFloat(pos.quantity || 0));
+        }
+
+        const getQtyAt        = this.buildTradePositionLedger(buySellTrades);
+        const symbolsInTrades = new Set(buySellTrades.map(t => this.stripExchange(t.symbol)).filter(Boolean));
+
+        // Snap weekly/monthly candle timestamps to period boundaries so that stocks
+        // with slightly misaligned candles (e.g. TSX Tuesday vs NYSE Monday) collapse
+        // to one data point per period instead of creating phantom duplicates.
+        const snapTs = (ts) => {
+            if (interval === '1wk') {
+                const d = new Date(ts * 1000);
+                const dow = d.getUTCDay();                         // 0=Sun, 1=Mon, …
+                const monday = d.getUTCDate() + (dow === 0 ? -6 : 1 - dow);
+                return Math.floor(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), monday) / 1000);
+            }
+            if (interval === '1mo') {
+                const d = new Date(ts * 1000);
+                return Math.floor(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), 1) / 1000);
+            }
+            return ts;
+        };
+
+        // Build per-symbol price series: Map<snapped-timestamp, close>
+        const priceMaps  = new Map();  // sym → Map<ts, close>
+        const cadMultMap = new Map();  // sym → cadMultiplier
+
+        for (const sym of allSymbols) {
+            const data = batchData[sym];
+            if (!data?.chart?.result?.[0]) continue;
+
+            const result     = data.chart.result[0];
+            const timestamps = result.timestamp || [];
+            const closes     = result.indicators?.quote?.[0]?.close || [];
+            const currency   = result.meta?.currency || 'USD';
+
+            const priceMap = new Map();
+            for (let i = 0; i < timestamps.length; i++) {
+                if (closes[i] != null && !isNaN(closes[i])) priceMap.set(snapTs(timestamps[i]), closes[i]);
+            }
+            priceMaps.set(sym, priceMap);
+            cadMultMap.set(sym, currency === 'USD' ? usdToCad : 1.0);
+        }
+
+        if (priceMaps.size === 0) {
+            showMsg('No price data available for this period');
+            return;
+        }
+
+        // Drive the timestamp spine from US-listed position symbols only. TSX-only
+        // trading days (when NYSE is closed or has no data) would otherwise create a
+        // phantom first data point with only Canadian stocks → artificially low value.
+        const usPositionSyms = [...positionSyms].filter(s => !/\.(TO|TSX|V|VN|CN|NE)$/i.test(s) && priceMaps.has(s));
+        const refSymsForTimestamps = usPositionSyms.length > 0
+            ? usPositionSyms
+            : [...positionSyms].filter(s => priceMaps.has(s));
+        const allTimestamps = [...new Set(
+            refSymsForTimestamps.flatMap(s => [...priceMaps.get(s).keys()])
+        )].sort((a, b) => a - b);
+
+        // For capital-off mode: pre-build sorted capital events (buys add, sells subtract)
+        // after the period start so we can strip injected capital from the value series.
+        const periodStartDateStr = allTimestamps.length > 0
+            ? new Date(allTimestamps[0] * 1000).toISOString().split('T')[0]
+            : '';
+        const capitalEvents = [];
+        if (!showCapital && periodStartDateStr) {
+            for (const t of buySellTrades) {
+                const d = t.transaction_date;
+                if (!d || d <= periodStartDateStr) continue;
+                const type   = t.type?.toLowerCase();
+                const rawQty = parseFloat(t.quantity || 0);
+                const isBuy  = type === 'buy'  || type === 'purchase' || (type === 'trade' && rawQty > 0);
+                const isSell = type === 'sell' || type === 'sale'     || (type === 'trade' && rawQty < 0);
+                if (!isBuy && !isSell) continue;
+                let tAmtRaw = NaN;
+                if      (t.net_amount != null && t.net_amount !== '') tAmtRaw = Math.abs(parseFloat(t.net_amount));
+                else if (t.amount     != null && t.amount     !== '') tAmtRaw = Math.abs(parseFloat(t.amount));
+                else if (t.value      != null && t.value      !== '') tAmtRaw = Math.abs(parseFloat(t.value));
+                else if (t.total      != null && t.total      !== '') tAmtRaw = Math.abs(parseFloat(t.total));
+                else if (t.total_cost != null && t.total_cost !== '') tAmtRaw = Math.abs(parseFloat(t.total_cost));
+                else if (rawQty && t.price) tAmtRaw = Math.abs(rawQty) * Math.abs(parseFloat(t.price));
+                if (isNaN(tAmtRaw) || tAmtRaw === 0) continue;
+                const sym       = t.symbol?.toUpperCase() || '';
+                const tCurrency = t.currency || (/\.(TO|TSX|V|VN|CN|NE)$/i.test(sym) ? 'CAD' : 'USD');
+                const tMult     = /\.(TO|TSX|V|VN|CN|NE)$/i.test(sym) ? 1.0
+                                : tCurrency === 'USD' ? usdToCad : 1.0;
+                capitalEvents.push({ date: d, delta: (isBuy ? 1 : -1) * tAmtRaw * tMult });
+            }
+            capitalEvents.sort((a, b) => a.date < b.date ? -1 : 1);
+        }
+
+        // Walk through time using ledger qty at each date
+        const lastClose = new Map();
+        const valueSeries = [];
+        const labelSeries = [];
+        let cumulativeCapital = 0;
+        let capIdx = 0;
+
+        const fmtLabel = (ts) => {
+            const d = new Date(ts * 1000);
+            if (period === '7d' || period === '28d') {
+                return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+            }
+            if (period === '6m') {
+                return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+            }
+            return d.toLocaleDateString('en-US', { year: 'numeric', month: 'short' });
+        };
+
+        for (const ts of allTimestamps) {
+            for (const [sym, priceMap] of priceMaps.entries()) {
+                if (priceMap.has(ts)) lastClose.set(sym, priceMap.get(ts));
+            }
+
+            const dateStr = new Date(ts * 1000).toISOString().split('T')[0];
+
+            // Advance capital cursor to current date
+            while (capIdx < capitalEvents.length && capitalEvents[capIdx].date <= dateStr) {
+                cumulativeCapital += capitalEvents[capIdx].delta;
+                capIdx++;
+            }
+
+            let total = 0, covered = 0;
+
+            for (const sym of allSymbols) {
+                if (!priceMaps.has(sym)) continue;
+                const close = lastClose.get(sym);
+                if (close == null) continue;
+                // Both modes use actual ledger qty. Capital-off subtracts cumulative
+                // capital injections from the total so the line shows only market-driven P&L.
+                const qty = symbolsInTrades.has(this.stripExchange(sym))
+                    ? getQtyAt(sym, dateStr)
+                    : (currentQtyMap.get(sym) || 0);
+                if (qty <= 0) continue;
+                total += qty * close * cadMultMap.get(sym);
+                covered++;
+            }
+
+            if (covered > 0) {
+                valueSeries.push(showCapital ? total : total - cumulativeCapital);
+                labelSeries.push(fmtLabel(ts));
+            }
+        }
+
+        if (valueSeries.length === 0) {
+            showMsg('No price data available for this period');
+            return;
+        }
+
+        // Trim leading entries where no positions were held yet (total = 0).
+        // Without this, a 3Y chart where investing started 12 months ago has
+        // 24 months of zero values at the start — the Y-axis spans 0→$200k and
+        // the recent $190k–$200k variation compresses into a flat-looking sliver.
+        const firstNonZero = valueSeries.findIndex(v => v > 0);
+        const displaySeries = firstNonZero > 0 ? valueSeries.slice(firstNonZero) : valueSeries;
+        const displayLabels = firstNonZero > 0 ? labelSeries.slice(firstNonZero) : labelSeries;
+
+        if (displaySeries.length === 0) {
+            showMsg('No price data available for this period');
+            return;
+        }
+
+        const fmtVal = v => {
+            const abs = Math.abs(v);
+            if (abs >= 1e6) return `$${(v / 1e6).toFixed(2)}M`;
+            if (abs >= 1000) return `$${(v / 1000).toFixed(1)}k`;
+            return `$${v.toFixed(0)}`;
+        };
+
+        const startVal = displaySeries[0];
+        const endVal   = displaySeries[displaySeries.length - 1];
+        const isUp     = endVal >= startVal;
+
+        // Zoom Y-axis to actual data range.
+        const yDataMin = Math.min(...displaySeries);
+        const yDataMax = Math.max(...displaySeries);
+        const ySpan    = yDataMax - yDataMin || yDataMax * 0.1;
+        const yMin     = Math.max(0, yDataMin - ySpan * 0.15);
+        const yMax     = yDataMax + ySpan * 0.05;
+
+
+        const lineColor = '#3D8A9E';
+        const fillColor = 'rgba(61,138,158,0.08)';
+
+        const ctx = canvas.getContext('2d');
+        const chart = new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels: displayLabels,
+                datasets: [{
+                    data: displaySeries,
+                    borderColor: lineColor,
+                    backgroundColor: fillColor,
+                    borderWidth: 1.5,
+                    pointRadius: 0,
+                    fill: true,
+                    tension: 0.1,
+                }]
+            },
+            options: {
+                animation: false,
+                responsive: true,
+                maintainAspectRatio: false,
+                interaction: { mode: 'index', intersect: false },
+                plugins: {
+                    legend: { display: false },
+                    tooltip: {
+                        callbacks: {
+                            label: (ctx) => {
+                                const v = ctx.parsed.y;
+                                const change = v - startVal;
+                                const sign = change >= 0 ? '+' : '';
+                                if (!showValues) {
+                                    const pct = startVal > 0 ? (change / startVal * 100).toFixed(1) : '0.0';
+                                    return `${sign}${pct}% vs start`;
+                                }
+                                return [`${fmtVal(v)} CAD`, `${sign}${fmtVal(change)} vs start`];
+                            }
+                        }
+                    }
+                },
+                scales: {
+                    x: {
+                        grid: { display: false },
+                        ticks: {
+                            color: '#aaa',
+                            font: { size: 10 },
+                            maxTicksLimit: 8,
+                            maxRotation: 0,
+                        }
+                    },
+                    y: {
+                        min: yMin,
+                        max: yMax,
+                        grid: { color: 'rgba(255,255,255,0.05)' },
+                        border: { dash: [4, 4] },
+                        ticks: {
+                            display: showValues,
+                            color: '#aaa',
+                            font: { size: 10 },
+                            callback: v => fmtVal(v)
+                        }
+                    }
+                }
+            }
+        });
+
+        this.portfolioCharts.set(canvasId, chart);
     }
 
     setupTickerSelector(graphCard, canvasId, graphId) {
@@ -5892,9 +6676,8 @@ class StockDashboard {
         card.dataset.symbol = symbol;
         card.dataset.width = 1;
 
-        if (this.isWatchlistExtraCollapsedMode()) {
+        if (this.getCollapsedStocks().includes(symbol)) {
             card.classList.add('collapsed');
-            card.classList.add('extra-collapsed');
         }
 
         card.innerHTML = `
@@ -5934,31 +6717,12 @@ class StockDashboard {
             <div class="ai-description hidden"></div>
         `;
 
-        const metricsArea = card.querySelector('.stock-metrics');
-        metricsArea.addEventListener('click', (e) => {
-            e.stopPropagation();
-            const collapsed = card.classList.toggle('collapsed');
-            const collapsedStocks = this.getCollapsedStocks();
-            if (collapsed) {
-                if (!collapsedStocks.includes(symbol)) collapsedStocks.push(symbol);
-            } else {
-                const idx = collapsedStocks.indexOf(symbol);
-                if (idx > -1) collapsedStocks.splice(idx, 1);
-                requestAnimationFrame(() => {
-                    const chart = this.charts.get(`wl-${symbol}`);
-                    if (chart) chart.resize();
-                });
-            }
-            this.saveCollapsedStocks(collapsedStocks);
-        });
-
         card.addEventListener('click', (e) => {
-            const isCollapsed = card.classList.contains('collapsed') || card.classList.contains('extra-collapsed');
-            if (isCollapsed && !e.target.closest('.remove-btn')) {
-                // Collapsed/extra-collapsed → expand fully
+            if (e.target.closest('.remove-btn')) return;
+            const isCollapsed = card.classList.contains('collapsed');
+            const collapsedStocks = this.getCollapsedStocks();
+            if (isCollapsed) {
                 card.classList.remove('collapsed');
-                card.classList.remove('extra-collapsed');
-                const collapsedStocks = this.getCollapsedStocks();
                 const idx = collapsedStocks.indexOf(symbol);
                 if (idx > -1) collapsedStocks.splice(idx, 1);
                 this.saveCollapsedStocks(collapsedStocks);
@@ -5967,20 +6731,11 @@ class StockDashboard {
                     const chart = this.charts.get(`wl-${symbol}`);
                     if (chart) chart.resize();
                 });
-            } else if (!isCollapsed && e.target.closest('.stock-header') && !e.target.closest('.remove-btn')) {
-                // Expanded → click header
-                // In global collapsed mode: go all the way back to bar
-                // In normal mode: collapse to summary view
-                if (this.isWatchlistExtraCollapsedMode()) {
-                    card.classList.add('collapsed');
-                    card.classList.add('extra-collapsed');
-                    this.updateCollapseToggleBar();
-                } else {
-                    card.classList.add('collapsed');
-                }
-                const collapsedStocks = this.getCollapsedStocks();
+            } else if (e.target.closest('.stock-header, .primary-metric')) {
+                card.classList.add('collapsed');
                 if (!collapsedStocks.includes(symbol)) collapsedStocks.push(symbol);
                 this.saveCollapsedStocks(collapsedStocks);
+                this.updateCollapseToggleBar();
             }
         });
 
@@ -6584,26 +7339,23 @@ class StockDashboard {
     }
 
     collapseAllWatchlist() {
-        localStorage.removeItem('watchlist_extra_collapsed');
+        const collapsedStocks = this.getCollapsedStocks();
         this.watchlist.forEach(symbol => {
             const card = document.getElementById(`watchlist-${symbol}`);
-            if (card) {
-                card.classList.add('collapsed');
-                card.classList.remove('extra-collapsed');
-            }
+            if (card) card.classList.add('collapsed');
+            if (!collapsedStocks.includes(symbol)) collapsedStocks.push(symbol);
         });
+        this.saveCollapsedStocks(collapsedStocks);
         this.updateCollapseToggleBar();
     }
 
     expandAllWatchlist() {
-        localStorage.removeItem('watchlist_extra_collapsed');
+        const collapsedStocks = this.getCollapsedStocks().filter(s => !this.watchlist.includes(s));
         this.watchlist.forEach(symbol => {
             const card = document.getElementById(`watchlist-${symbol}`);
-            if (card) {
-                card.classList.remove('collapsed');
-                card.classList.remove('extra-collapsed');
-            }
+            if (card) card.classList.remove('collapsed');
         });
+        this.saveCollapsedStocks(collapsedStocks);
         requestAnimationFrame(() => {
             this.watchlist.forEach(symbol => {
                 const chart = this.charts.get(`wl-${symbol}`);
@@ -6611,22 +7363,6 @@ class StockDashboard {
             });
         });
         this.updateCollapseToggleBar();
-    }
-
-    extraCollapseAllWatchlist() {
-        localStorage.setItem('watchlist_extra_collapsed', 'true');
-        this.watchlist.forEach(symbol => {
-            const card = document.getElementById(`watchlist-${symbol}`);
-            if (card) {
-                card.classList.add('collapsed');
-                card.classList.add('extra-collapsed');
-            }
-        });
-        this.updateCollapseToggleBar();
-    }
-
-    isWatchlistExtraCollapsedMode() {
-        return localStorage.getItem('watchlist_extra_collapsed') === 'true';
     }
 
     updateCollapseToggleBar() {
@@ -6643,12 +7379,9 @@ class StockDashboard {
                 bar.textContent = allCollapsed ? '▽' : '▲';
             }
         } else if (activeTab === 'watchlistTab') {
-            const cards = document.querySelectorAll('#watchlistGrid .stock-card');
-            const allExtra = cards.length > 0 && [...cards].every(c => c.classList.contains('extra-collapsed'));
-            const allCollapsed = cards.length > 0 && [...cards].every(c => c.classList.contains('collapsed'));
-            if (allExtra) bar.textContent = '▼';
-            else if (allCollapsed) bar.textContent = '▽';
-            else bar.textContent = '▲';
+            const cards = [...document.querySelectorAll('#watchlistGrid .stock-card')];
+            const allCollapsed = cards.length > 0 && cards.every(c => c.classList.contains('collapsed'));
+            bar.textContent = allCollapsed ? '▽' : '▲';
         }
     }
 
@@ -6666,10 +7399,8 @@ class StockDashboard {
             }
         } else if (activeTab === 'watchlistTab') {
             const cards = [...document.querySelectorAll('#watchlistGrid .stock-card')];
-            const allExtra = cards.length > 0 && cards.every(c => c.classList.contains('extra-collapsed'));
             const allCollapsed = cards.length > 0 && cards.every(c => c.classList.contains('collapsed'));
-            if (allExtra) this.expandAllWatchlist();
-            else if (allCollapsed) this.extraCollapseAllWatchlist();
+            if (allCollapsed) this.expandAllWatchlist();
             else this.collapseAllWatchlist();
         }
     }
@@ -6832,25 +7563,40 @@ class StockDashboard {
         return `${d.getFullYear()}-W${String(week).padStart(2, '0')}`;
     }
 
+    _pruneOldAICache() {
+        // Remove accumulated old-format keys: ai_stock_SYMBOL_YYYY-Www and ai_portfolio_analysis_YYYY-MM-DD
+        const toRemove = [];
+        for (let i = 0; i < localStorage.length; i++) {
+            const key = localStorage.key(i);
+            if (!key) continue;
+            if (/^ai_stock_.+_\d{4}-W\d+$/.test(key)) toRemove.push(key);
+            if (/^ai_portfolio_analysis_\d{4}-\d{2}-\d{2}$/.test(key)) toRemove.push(key);
+        }
+        toRemove.forEach(k => localStorage.removeItem(k));
+    }
+
     getCachedStockAnalysis(symbol) {
-        const raw = localStorage.getItem(`ai_stock_${symbol}_${this.getWeekKey()}`);
-        return raw ? JSON.parse(raw) : null;
+        const raw = localStorage.getItem(`ai_stock_${symbol}`);
+        if (!raw) return null;
+        try {
+            const entry = JSON.parse(raw);
+            return entry.weekKey === this.getWeekKey() ? entry.analysis : null;
+        } catch { return null; }
     }
 
     setCachedStockAnalysis(symbol, analysis) {
-        localStorage.setItem(`ai_stock_${symbol}_${this.getWeekKey()}`, JSON.stringify(analysis));
+        localStorage.setItem(`ai_stock_${symbol}`, JSON.stringify({ weekKey: this.getWeekKey(), analysis }));
     }
 
     refreshAIAnalysis() {
-        const weekKey = this.getWeekKey();
         this.watchlist.forEach(symbol => {
-            localStorage.removeItem(`ai_stock_${symbol}_${weekKey}`);
+            localStorage.removeItem(`ai_stock_${symbol}`);
         });
         this.analyzeWatchlistWithAI();
     }
 
     async refreshCardAnalysis(symbol) {
-        localStorage.removeItem(`ai_stock_${symbol}_${this.getWeekKey()}`);
+        localStorage.removeItem(`ai_stock_${symbol}`);
         const card = document.getElementById(`watchlist-${symbol}`);
         if (!card) return;
 

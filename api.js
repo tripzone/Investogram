@@ -201,6 +201,36 @@ class StockAPI {
         return resp.json();
     }
 
+    // Cache-aware batch fetch: returns cached data for symbols already seen,
+    // batches only the misses, then populates the cache for future callers.
+    // Use this instead of fetchBatch so multiple charts sharing the same period
+    // never hit the server more than once for the same symbol/range/interval.
+    async fetchBatchCached(symbols, range, interval) {
+        if (!symbols.length) return {};
+        const results = {};
+        const toFetch = [];
+        for (const sym of symbols) {
+            const key = `/api/stock/${encodeURIComponent(sym)}?range=${range}&interval=${interval}`;
+            const cached = this.getFromCache(key);
+            if (cached) {
+                results[sym.toUpperCase()] = cached;
+            } else {
+                toFetch.push(sym);
+            }
+        }
+        if (toFetch.length > 0) {
+            const batchData = await this.fetchBatch(toFetch, range, interval);
+            for (const sym of toFetch) {
+                const data = batchData[sym.toUpperCase()];
+                if (data) {
+                    this.setCache(`/api/stock/${encodeURIComponent(sym)}?range=${range}&interval=${interval}`, data);
+                    results[sym.toUpperCase()] = data;
+                }
+            }
+        }
+        return results;
+    }
+
     // Stream batch results from the server, calling onSymbol(symbol, raw) as each arrives.
     async streamBatch(symbols, range, interval, onSymbol) {
         if (!symbols.length) return;

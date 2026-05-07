@@ -184,7 +184,15 @@ function schedulePush() {
 
 const _originalSetItem = localStorage.setItem.bind(localStorage);
 localStorage.setItem = function (key, value) {
-    _originalSetItem(key, value);
+    try {
+        _originalSetItem(key, value);
+    } catch (e) {
+        if (e.name === 'QuotaExceededError' || e.code === 22) {
+            console.warn(`[localStorage] Quota exceeded saving "${key}" — storage full, value not persisted`);
+            return;
+        }
+        throw e;
+    }
     if (currentUser && SYNC_KEYS.includes(key)) {
         schedulePush();
     }
