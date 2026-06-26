@@ -22,6 +22,7 @@ const SYNC_KEYS = [
     'portfolio_categories_uploaded_at',
     'show_values',
     'portfolio_excluded_symbols',
+    'stock_colors',
 ];
 
 // ── Firebase init ──────────────────────────────────────────────────────────────

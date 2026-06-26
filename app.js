@@ -7424,6 +7424,54 @@ class StockDashboard {
         this.updateWatchlistEmptyState();
     }
 
+    loadStockColors() {
+        const saved = localStorage.getItem('stock_colors');
+        return saved ? JSON.parse(saved) : {};
+    }
+
+    saveStockColors(colors) {
+        localStorage.setItem('stock_colors', JSON.stringify(colors));
+    }
+
+    getCardColor(symbol) {
+        return this.loadStockColors()[symbol] || null;
+    }
+
+    setCardColor(symbol, color) {
+        const colors = this.loadStockColors();
+        if (color) {
+            colors[symbol] = color;
+        } else {
+            delete colors[symbol];
+        }
+        this.saveStockColors(colors);
+        const trackCard = document.getElementById(`stock-${symbol}`);
+        const wlCard = document.getElementById(`watchlist-${symbol}`);
+        if (trackCard) trackCard.style.backgroundColor = color || '';
+        if (wlCard) wlCard.style.backgroundColor = color || '';
+    }
+
+    setCardWidth(symbol, width) {
+        const idx = this.stockList.findIndex(e => this.parseStockEntry(e).symbol === symbol);
+        if (idx === -1) return;
+        this.stockList[idx] = width > 1 ? `${symbol}:${width}` : symbol;
+        this.saveStockList();
+        const card = document.getElementById(`stock-${symbol}`);
+        if (card) {
+            card.dataset.width = width;
+            if (width > 1) {
+                if (window.innerWidth <= 768) {
+                    card.style.width = '100%';
+                } else {
+                    const baseWidth = this.stockList.length > 6 ? 240 : 280;
+                    card.style.width = `${baseWidth * width}px`;
+                }
+            } else {
+                card.style.width = '';
+            }
+        }
+    }
+
     updateWatchlistEmptyState() {
         const emptyState = document.getElementById('watchlistEmptyState');
         const grid = document.getElementById('watchlistGrid');
@@ -7634,6 +7682,9 @@ class StockDashboard {
         if (this.getCollapsedStocks().includes(symbol)) {
             card.classList.add('collapsed');
         }
+
+        const wlSavedColor = this.getCardColor(symbol);
+        if (wlSavedColor) card.style.backgroundColor = wlSavedColor;
 
         card.innerHTML = `
             <div class="stock-header">
@@ -8133,6 +8184,9 @@ class StockDashboard {
         if (this.isExtraCollapsedMode()) {
             card.classList.add('extra-collapsed');
         }
+
+        const savedColor = this.getCardColor(symbol);
+        if (savedColor) card.style.backgroundColor = savedColor;
 
         // Set width based on multiplier - match actual single card widths
         if (width > 1) {
@@ -9704,6 +9758,21 @@ class StockDashboard {
 
         document.getElementById('trackingOverviewSymbol').textContent = symbol;
 
+        // Gear button — toggle settings panel
+        const gearBtn = document.getElementById('tovGearBtn');
+        const settingsPanel = document.getElementById('tovSettingsPanel');
+        // Re-attach handler (clone to remove stale listeners)
+        const newGear = gearBtn.cloneNode(true);
+        gearBtn.parentNode.replaceChild(newGear, gearBtn);
+        settingsPanel.classList.add('hidden');
+        newGear.addEventListener('click', (e) => {
+            e.stopPropagation();
+            settingsPanel.classList.toggle('hidden');
+            if (!settingsPanel.classList.contains('hidden')) {
+                this._renderTovSettings(symbol, settingsPanel);
+            }
+        });
+
         document.getElementById('trackingOverviewBody').innerHTML = `
             <div class="tov-metrics">
                 <div class="tov-metric-primary ${data.isPositive ? 'positive' : 'negative'}">
@@ -9802,6 +9871,55 @@ class StockDashboard {
         this._activeModalType = null;
         this._activeModalSymbol = null;
         this._activeModalContext = null;
+    }
+
+    _renderTovSettings(symbol, panel) {
+        const TOV_COLORS = [
+            { label: 'Red',    value: 'rgba(239,68,68,0.13)',    swatch: '#ef4444' },
+            { label: 'Orange', value: 'rgba(249,115,22,0.13)',   swatch: '#f97316' },
+            { label: 'Amber',  value: 'rgba(245,158,11,0.13)',   swatch: '#f59e0b' },
+            { label: 'Green',  value: 'rgba(34,197,94,0.13)',    swatch: '#22c55e' },
+            { label: 'Teal',   value: 'rgba(20,184,166,0.13)',   swatch: '#14b8a6' },
+            { label: 'Blue',   value: 'rgba(59,130,246,0.13)',   swatch: '#3b82f6' },
+            { label: 'Violet', value: 'rgba(139,92,246,0.13)',   swatch: '#8b5cf6' },
+            { label: 'Pink',   value: 'rgba(236,72,153,0.13)',   swatch: '#ec4899' },
+        ];
+
+        const currentColor = this.getCardColor(symbol);
+        const parsed = this.stockList.map(e => this.parseStockEntry(e)).find(e => e.symbol === symbol);
+        const currentWidth = parsed ? parsed.width : 1;
+
+        panel.innerHTML = `
+            <div class="tov-settings-section">
+                <div class="tov-settings-label">Size</div>
+                <div class="tov-size-btns">
+                    ${[1,2,3,4].map(w => `<button class="tov-size-btn${currentWidth===w?' active':''}" data-width="${w}">${w}×</button>`).join('')}
+                </div>
+            </div>
+            <div class="tov-settings-section">
+                <div class="tov-settings-label">Color</div>
+                <div class="tov-color-swatches">
+                    <button class="tov-color-swatch tov-color-none${!currentColor?' active':''}" data-color="" title="No color">✕</button>
+                    ${TOV_COLORS.map(c => `<button class="tov-color-swatch${currentColor===c.value?' active':''}" data-color="${c.value}" title="${c.label}" style="background:${c.swatch}"></button>`).join('')}
+                </div>
+            </div>
+        `;
+
+        panel.querySelectorAll('.tov-size-btn').forEach(btn => {
+            btn.addEventListener('click', () => {
+                const w = parseInt(btn.dataset.width);
+                this.setCardWidth(symbol, w);
+                panel.querySelectorAll('.tov-size-btn').forEach(b => b.classList.toggle('active', b === btn));
+            });
+        });
+
+        panel.querySelectorAll('.tov-color-swatch').forEach(btn => {
+            btn.addEventListener('click', () => {
+                const color = btn.dataset.color;
+                this.setCardColor(symbol, color);
+                panel.querySelectorAll('.tov-color-swatch').forEach(b => b.classList.toggle('active', b === btn));
+            });
+        });
     }
 
     _navigateModal(dir, swipeDir = null) {
