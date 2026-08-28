@@ -7919,6 +7919,23 @@ class StockDashboard {
             this.saveCollapsedStocks(domCollapsed);
         }
 
+        // Extend collapse state to any stocks added since the last collapse-all.
+        // Detects the pattern: all previously-known stocks are collapsed but new ones aren't.
+        {
+            const allSymbols = this.stockList
+                .filter(e => !this.parseStockEntry(e).isDivider)
+                .map(e => this.parseStockEntry(e).symbol);
+            const saved = this.getCollapsedStocks();
+            const savedSet = new Set(saved);
+            const missing = allSymbols.filter(s => !savedSet.has(s));
+            if (missing.length > 0 && saved.length > 0) {
+                const noOrphans = saved.every(s => allSymbols.includes(s));
+                if (this.isExtraCollapsedMode() || noOrphans) {
+                    this.saveCollapsedStocks([...saved, ...missing]);
+                }
+            }
+        }
+
         const grid = document.getElementById('stockGrid');
         grid.innerHTML = '';
 
@@ -8025,10 +8042,9 @@ class StockDashboard {
     }
 
     refreshAllStocks() {
-        // Clear cache
         stockAPI.cache.clear();
-
-        // Re-render all stocks
+        stockAPI.fundamentalsCache.clear();
+        this._watchlistRendered = false;
         this.renderAllStocks();
     }
 
@@ -8382,9 +8398,8 @@ class StockDashboard {
             if (this.isExtraCollapsedMode()) {
                 bar.textContent = '▼';
             } else {
-                const stocks = this.stockList.filter(e => !this.parseStockEntry(e).isDivider);
-                const collapsed = this.getCollapsedStocks();
-                const allCollapsed = stocks.length > 0 && stocks.every(e => collapsed.includes(this.parseStockEntry(e).symbol));
+                const stockCards = [...document.querySelectorAll('#stockGrid .stock-card')];
+                const allCollapsed = stockCards.length > 0 && stockCards.every(c => c.classList.contains('collapsed'));
                 bar.textContent = allCollapsed ? '▽' : '▲';
             }
         } else if (activeTab === 'watchlistTab') {
@@ -8400,9 +8415,8 @@ class StockDashboard {
             if (this.isExtraCollapsedMode()) {
                 this.expandAllCards();
             } else {
-                const stocks = this.stockList.filter(e => !this.parseStockEntry(e).isDivider);
-                const collapsed = this.getCollapsedStocks();
-                const allCollapsed = stocks.length > 0 && stocks.every(e => collapsed.includes(this.parseStockEntry(e).symbol));
+                const stockCards = [...document.querySelectorAll('#stockGrid .stock-card')];
+                const allCollapsed = stockCards.length > 0 && stockCards.every(c => c.classList.contains('collapsed'));
                 if (allCollapsed) this.extraCollapseAllCards();
                 else this.collapseAllCards();
             }
@@ -8417,7 +8431,6 @@ class StockDashboard {
     refreshAllWatchlist() {
         stockAPI.cache.clear();
         stockAPI.fundamentalsCache.clear();
-        this.refreshAIAnalysis();
         this.renderAllWatchlistStocks();
     }
 
@@ -8567,9 +8580,7 @@ class StockDashboard {
 
     getWeekKey() {
         const d = new Date();
-        const jan1 = new Date(d.getFullYear(), 0, 1);
-        const week = Math.ceil(((d - jan1) / 86400000 + jan1.getDay() + 1) / 7);
-        return `${d.getFullYear()}-W${String(week).padStart(2, '0')}`;
+        return `${d.getFullYear()}-M${String(d.getMonth() + 1).padStart(2, '0')}`;
     }
 
     _pruneOldAICache() {

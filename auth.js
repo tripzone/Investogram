@@ -68,6 +68,7 @@ async function pullFromServer() {
     const guestStocks = JSON.parse(localStorage.getItem('stock_list') || '[]');
     const guestWatchlist = JSON.parse(localStorage.getItem('watchlist') || '[]');
     const guestGraphs = JSON.parse(localStorage.getItem('portfolio_graphs') || '[]');
+    const guestColors = JSON.parse(localStorage.getItem('stock_colors') || '{}');
 
     try {
         const resp = await fetch('/api/user/data', {
@@ -121,6 +122,17 @@ async function pullFromServer() {
             if (newGraphs.length > 0) {
                 _originalSetItem('portfolio_graphs', JSON.stringify([...serverGraphs, ...newGraphs]));
                 console.log(`[auth] Merged ${newGraphs.length} guest graph(s) into account`);
+                needsPush = true;
+            }
+        }
+
+        // Colors: merge local entries over server entries (local wins per-symbol)
+        if (Object.keys(guestColors).length > 0) {
+            const serverColors = JSON.parse(localStorage.getItem('stock_colors') || '{}');
+            const merged = { ...serverColors, ...guestColors };
+            if (JSON.stringify(merged) !== JSON.stringify(serverColors)) {
+                _originalSetItem('stock_colors', JSON.stringify(merged));
+                console.log('[auth] Merged local stock colors into account');
                 needsPush = true;
             }
         }
