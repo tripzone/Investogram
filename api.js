@@ -674,7 +674,7 @@ class StockAPI {
 
         // localStorage fallback — 24-hour TTL (fundamentals are quarterly data)
         try {
-            const stored = localStorage.getItem('fund_' + key);
+            const stored = localStorage.getItem('fund2_' + key);
             if (stored) {
                 const { date, data } = JSON.parse(stored);
                 if (date === new Date().toISOString().slice(0, 10)) {
@@ -692,7 +692,7 @@ class StockAPI {
         const key = symbol.toUpperCase();
         this.fundamentalsCache.set(key, { data, timestamp: Date.now() });
         try {
-            localStorage.setItem('fund_' + key, JSON.stringify({
+            localStorage.setItem('fund2_' + key, JSON.stringify({
                 date: new Date().toISOString().slice(0, 10),
                 data
             }));

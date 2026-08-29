@@ -3832,7 +3832,7 @@ button:active {
 }
 
 .tov-metric-primary {
-    font-size: 22px;
+    font-size: 19px;
     font-weight: 700;
 }
 
@@ -3904,7 +3904,7 @@ button:active {
 
 @media (max-width: 600px) {
     .tov-metric-primary {
-        font-size: 18px;
+        font-size: 16px;
     }
 
     .tov-chart-container {
