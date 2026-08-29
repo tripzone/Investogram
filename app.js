@@ -9759,13 +9759,22 @@ class StockDashboard {
 
         const fund = stockAPI.getFundamentalsFromCache(symbol);
         const fmt = (v, dec = 1) => v != null ? parseFloat(v).toFixed(dec) : '–';
-
-        const peText = fund ? `P/E ${fmt(fund.trailingPE)} · Fwd ${fmt(fund.forwardPE)}` : '–';
+        const fmtPct = (v) => v != null ? (parseFloat(v) * 100).toFixed(1) + '%' : '–';
+        const fmtYield = (v) => v != null ? parseFloat(v).toFixed(2) + '%' : '–';
 
         const dayArrow = data.isPositive ? '▲' : '▼';
         const weekArrow = data.isWeeklyPositive ? '▲' : '▼';
+        const monthArrow = data.isMonthlyPositive ? '▲' : '▼';
         const vsMA50 = parseFloat(data.vsMA50);
         const vsMA200 = parseFloat(data.vsMA200);
+
+        const pe = fund ? fmt(fund.trailingPE) : '–';
+        const fwdPe = fund ? fmt(fund.forwardPE) : '–';
+        const divYield = fund ? fmtYield(fund.dividendYield) : '–';
+        const revGrowth = fund ? fund.revenueGrowth : null;
+        const earnGrowth = fund ? fund.earningsGrowth : null;
+        const revGrowthClass = revGrowth != null ? (revGrowth >= 0 ? 'positive' : 'negative') : '';
+        const earnGrowthClass = earnGrowth != null ? (earnGrowth >= 0 ? 'positive' : 'negative') : '';
 
         document.getElementById('trackingOverviewSymbol').textContent = symbol;
 
@@ -9794,13 +9803,37 @@ class StockDashboard {
                     ${weekArrow} ${data.weeklyChangePercent}%
                     <span class="tov-metric-label">7 days</span>
                 </div>
+                <div class="tov-metric-secondary ${data.isMonthlyPositive ? 'positive' : 'negative'}">
+                    ${monthArrow} ${data.monthlyChangePercent}%
+                    <span class="tov-metric-label">28 days</span>
+                </div>
                 <div class="tov-metric-secondary tov-price">
                     ${data.currentPrice}
                     <span class="tov-metric-label">Price</span>
                 </div>
+            </div>
+            <div class="tov-metrics tov-metrics-3">
                 <div class="tov-metric-secondary">
-                    ${peText}
-                    <span class="tov-metric-label">Valuation</span>
+                    ${pe}
+                    <span class="tov-metric-label">P/E</span>
+                </div>
+                <div class="tov-metric-secondary">
+                    ${fwdPe}
+                    <span class="tov-metric-label">Fwd P/E</span>
+                </div>
+                <div class="tov-metric-secondary">
+                    ${divYield}
+                    <span class="tov-metric-label">Div Yield</span>
+                </div>
+            </div>
+            <div class="tov-metrics tov-metrics-2">
+                <div class="tov-metric-secondary ${revGrowthClass}">
+                    ${fmtPct(revGrowth)}
+                    <span class="tov-metric-label">Revenue Growth (YoY)</span>
+                </div>
+                <div class="tov-metric-secondary ${earnGrowthClass}">
+                    ${fmtPct(earnGrowth)}
+                    <span class="tov-metric-label">Earnings Growth (YoY)</span>
                 </div>
             </div>
             <div class="tov-chart-container">

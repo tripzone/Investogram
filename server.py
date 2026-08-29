@@ -208,6 +208,8 @@ def _fetch_fundamentals_yf(symbol):
         'forwardPE': info.get('forwardPE'),
         'dividendYield': info.get('dividendYield'),
         'profitMargin': info.get('profitMargins'),
+        'revenueGrowth': info.get('revenueGrowth'),
+        'earningsGrowth': info.get('earningsGrowth'),
     }
 
 
@@ -234,7 +236,7 @@ def stocks_fundamentals():
                 return symbol, _fetch_fundamentals_yf(symbol)
             except Exception as e:
                 print(f'Fundamentals fetch failed for {symbol}: {e}')
-                return symbol, {'trailingPE': None, 'forwardPE': None, 'dividendYield': None, 'profitMargin': None}
+                return symbol, {'trailingPE': None, 'forwardPE': None, 'dividendYield': None, 'profitMargin': None, 'revenueGrowth': None, 'earningsGrowth': None}
 
         with ThreadPoolExecutor(max_workers=min(len(to_fetch), 5)) as executor:
             futures = {executor.submit(fetch_one, sym): sym for sym in to_fetch}

@@ -3756,6 +3756,14 @@ button:active {
     gap: 8px;
 }
 
+.tov-metrics-3 {
+    grid-template-columns: repeat(3, 1fr);
+}
+
+.tov-metrics-2 {
+    grid-template-columns: repeat(2, 1fr);
+}
+
 .tov-metric-primary,
 .tov-metric-secondary {
     background: #242424;
@@ -3830,6 +3838,14 @@ button:active {
 
 @media (max-width: 600px) {
     .tov-metrics {
+        grid-template-columns: repeat(2, 1fr);
+    }
+
+    .tov-metrics-3 {
+        grid-template-columns: repeat(3, 1fr);
+    }
+
+    .tov-metrics-2 {
         grid-template-columns: repeat(2, 1fr);
     }
 
