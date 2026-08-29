@@ -9778,6 +9778,23 @@ class StockDashboard {
 
         document.getElementById('trackingOverviewSymbol').textContent = symbol;
 
+        // Watchlist add button
+        const wlBtn = document.getElementById('tovWatchlistBtn');
+        const newWlBtn = wlBtn.cloneNode(true);
+        wlBtn.parentNode.replaceChild(newWlBtn, wlBtn);
+        newWlBtn.dataset.symbol = symbol;
+        if (this.watchlist.includes(symbol)) {
+            newWlBtn.classList.add('in-watchlist');
+            newWlBtn.title = 'Already in Watchlist';
+        } else {
+            newWlBtn.classList.remove('in-watchlist');
+            newWlBtn.title = 'Add to Watchlist';
+        }
+        newWlBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            this.addToWatchlist(symbol);
+        });
+
         // Gear button — toggle settings panel
         const gearBtn = document.getElementById('tovGearBtn');
         const settingsPanel = document.getElementById('tovSettingsPanel');
