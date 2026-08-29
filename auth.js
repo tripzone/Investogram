@@ -250,6 +250,7 @@ firebaseAuth.onAuthStateChanged(async (user) => {
     currentUser = user;
 
     if (user) {
+        guestMode = false;
         hideAuthOverlay();
         setSignedInState(user);
 
@@ -281,6 +282,7 @@ firebaseAuth.onAuthStateChanged(async (user) => {
             window.dashboard.updateDataIndicators();
         }
     } else {
+        guestMode = true;
         setSignedOutState();
         if (!guestMode) {
             showAuthOverlay();
