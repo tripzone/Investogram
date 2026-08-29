@@ -3525,49 +3525,80 @@ button:active {
     padding: 20px 0;
 }
 
-.fund-modal-section {
+.fund-section {
     min-width: 0;
 }
 
-.fund-modal-section-title {
-    font-size: 10px;
-    font-weight: 700;
-    color: #4a5568;
-    text-transform: uppercase;
-    letter-spacing: 0.08em;
+.fund-section-hd {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
     margin-bottom: 6px;
     padding-bottom: 4px;
     border-bottom: 1px solid #2a2a2a;
 }
 
-.fund-modal-table {
-    width: 100%;
-    border-collapse: collapse;
+.fund-section-title {
+    font-size: 10px;
+    font-weight: 700;
+    color: #4a5568;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
 }
 
-.fund-modal-table tr td {
-    padding-bottom: 7px;
-    vertical-align: baseline;
+.fund-more-btn {
+    background: none;
+    border: none;
+    color: #4a5568;
+    font-size: 10px;
+    font-weight: 600;
+    cursor: pointer;
+    padding: 0;
+    letter-spacing: 0.04em;
+    transition: color 0.15s;
 }
 
-.fund-modal-table tr:first-child td {
-    padding-top: 2px;
+.fund-more-btn:hover {
+    color: #718096;
 }
 
-.fund-modal-label {
+.fund-rows {
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+}
+
+.fund-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    padding: 5px 0;
+}
+
+.fund-more-rows {
+    display: contents;
+}
+
+.fund-more-rows.hidden {
+    display: none;
+}
+
+.fund-label {
     font-size: 12px;
     color: #718096;
-    padding-right: 20px;
+    padding-right: 12px;
     white-space: nowrap;
 }
 
-.fund-modal-val {
+.fund-val {
     font-size: 12px;
     color: #e2e8f0;
     font-weight: 500;
     text-align: right;
-    width: 100%;
 }
+
+.fund-pos { color: #48bb78; }
+.fund-neg { color: #f56565; }
 
 /* Clickable fundamentals region */
 .fund-in-ai,

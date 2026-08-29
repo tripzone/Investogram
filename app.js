@@ -9547,7 +9547,6 @@ class StockDashboard {
 
             const fmt = (v, dec = 1) => v != null ? parseFloat(v).toFixed(dec) : '–';
             const fmtPct = (v) => v != null ? (parseFloat(v) * 100).toFixed(1) + '%' : '–';
-            // dividendYield from yfinance is already in % form (0.39 = 0.39%)
             const fmtYield = (v) => v != null ? parseFloat(v).toFixed(2) + '%' : '–';
             const fmtLarge = (v) => {
                 if (v == null) return '–';
@@ -9558,71 +9557,95 @@ class StockDashboard {
                 return n.toFixed(0);
             };
             const fmtPrice = (v) => v != null ? '$' + parseFloat(v).toFixed(2) : '–';
-            const fmtRec = (v) => v ? v.charAt(0).toUpperCase() + v.slice(1) : '–';
+            const fmtRec = (v) => v ? v.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase()) : '–';
+            const signedPct = (v) => {
+                if (v == null) return '–';
+                const pct = parseFloat(v) * 100;
+                const cls = pct >= 0 ? 'fund-pos' : 'fund-neg';
+                return `<span class="${cls}">${pct >= 0 ? '+' : ''}${pct.toFixed(1)}%</span>`;
+            };
+            const ratingHtml = (v) => {
+                if (!v) return '–';
+                const label = fmtRec(v);
+                const cls = v.includes('buy') ? 'fund-pos' : v.includes('sell') ? 'fund-neg' : '';
+                return cls ? `<span class="${cls}">${label}</span>` : label;
+            };
 
             const sections = [
                 {
                     title: 'Valuation',
-                    rows: [
-                        ['P/E (TTM)',       fmt(d.trailingPE)],
-                        ['Forward P/E',     fmt(d.forwardPE)],
-                        ['PEG Ratio',       fmt(d.trailingPegRatio, 2)],
-                        ['Price / Book',    fmt(d.priceToBook, 2)],
-                        ['Price / Sales',   fmt(d.priceToSalesTrailing12Months, 2)],
-                        ['EV / EBITDA',     fmt(d.enterpriseToEbitda, 1)],
-                        ['EV / Revenue',    fmt(d.enterpriseToRevenue, 2)],
-                    ]
-                },
-                {
-                    title: 'Profitability',
-                    rows: [
-                        ['Gross Margin',     fmtPct(d.grossMargins)],
-                        ['Operating Margin', fmtPct(d.operatingMargins)],
-                        ['EBITDA Margin',    fmtPct(d.ebitdaMargins)],
-                        ['Net Margin',       fmtPct(d.profitMargins)],
-                        ['Return on Equity', fmtPct(d.returnOnEquity)],
-                        ['Return on Assets', fmtPct(d.returnOnAssets)],
+                    key: [
+                        ['P/E (TTM)',    fmt(d.trailingPE)],
+                        ['Forward P/E', fmt(d.forwardPE)],
+                        ['PEG Ratio',   fmt(d.trailingPegRatio, 2)],
+                    ],
+                    more: [
+                        ['Price / Book',  fmt(d.priceToBook, 2)],
+                        ['Price / Sales', fmt(d.priceToSalesTrailing12Months, 2)],
+                        ['EV / EBITDA',   fmt(d.enterpriseToEbitda, 1)],
+                        ['EV / Revenue',  fmt(d.enterpriseToRevenue, 2)],
                     ]
                 },
                 {
                     title: 'Growth',
-                    rows: [
-                        ['Revenue Growth (YoY)',  fmtPct(d.revenueGrowth)],
-                        ['Earnings Growth (YoY)', fmtPct(d.earningsGrowth)],
-                        ['Quarterly EPS Growth',  fmtPct(d.earningsQuarterlyGrowth)],
-                    ]
-                },
-                {
-                    title: 'Financial Health',
-                    rows: [
-                        ['Debt / Equity',     fmt(d.debtToEquity, 2)],
-                        ['Current Ratio',     fmt(d.currentRatio, 2)],
-                        ['Quick Ratio',       fmt(d.quickRatio, 2)],
-                        ['Total Cash',        fmtLarge(d.totalCash)],
-                        ['Total Debt',        fmtLarge(d.totalDebt)],
-                        ['Free Cash Flow',    fmtLarge(d.freeCashflow)],
-                        ['Operating CF',      fmtLarge(d.operatingCashflow)],
+                    key: [
+                        ['Revenue Growth',  signedPct(d.revenueGrowth)],
+                        ['Earnings Growth', signedPct(d.earningsGrowth)],
+                    ],
+                    more: [
+                        ['Quarterly EPS', signedPct(d.earningsQuarterlyGrowth)],
                     ]
                 },
                 {
                     title: 'Dividends',
-                    rows: [
-                        ['Dividend Yield',       fmtYield(d.dividendYield)],
-                        ['Annual Dividend',       d.dividendRate != null ? '$' + fmt(d.dividendRate, 2) : '–'],
-                        ['Payout Ratio',          fmtPct(d.payoutRatio)],
-                        ['5Y Avg Yield',          d.fiveYearAvgDividendYield != null ? fmt(d.fiveYearAvgDividendYield, 2) + '%' : '–'],
+                    key: [
+                        ['Yield',    fmtYield(d.dividendYield)],
+                        ['Annual',   d.dividendRate != null ? '$' + fmt(d.dividendRate, 2) : '–'],
+                        ['5Y Avg',   d.fiveYearAvgDividendYield != null ? fmt(d.fiveYearAvgDividendYield, 2) + '%' : '–'],
+                    ],
+                    more: [
+                        ['Payout Ratio', signedPct(d.payoutRatio)],
+                    ]
+                },
+                {
+                    title: 'Profitability',
+                    key: [
+                        ['Gross Margin',     signedPct(d.grossMargins)],
+                        ['Operating Margin', signedPct(d.operatingMargins)],
+                        ['Net Margin',       signedPct(d.profitMargins)],
+                    ],
+                    more: [
+                        ['EBITDA Margin',    signedPct(d.ebitdaMargins)],
+                        ['Return on Equity', signedPct(d.returnOnEquity)],
+                        ['Return on Assets', signedPct(d.returnOnAssets)],
+                    ]
+                },
+                {
+                    title: 'Financial Health',
+                    key: [
+                        ['Current Ratio',  fmt(d.currentRatio, 2)],
+                        ['Total Cash',     fmtLarge(d.totalCash)],
+                        ['Free Cash Flow', fmtLarge(d.freeCashflow)],
+                    ],
+                    more: [
+                        ['Debt / Equity', fmt(d.debtToEquity, 2)],
+                        ['Quick Ratio',   fmt(d.quickRatio, 2)],
+                        ['Total Debt',    fmtLarge(d.totalDebt)],
+                        ['Operating CF',  fmtLarge(d.operatingCashflow)],
                     ]
                 },
                 {
                     title: 'Market & Share Data',
-                    rows: [
-                        ['Market Cap',         fmtLarge(d.marketCap)],
+                    key: [
+                        ['Market Cap',    fmtLarge(d.marketCap)],
+                        ['Short % Float', fmtPct(d.shortPercentOfFloat)],
+                    ],
+                    more: [
                         ['Enterprise Value',   fmtLarge(d.enterpriseValue)],
                         ['Beta',               fmt(d.beta, 2)],
                         ['Shares Outstanding', fmtLarge(d.sharesOutstanding)],
                         ['Float',              fmtLarge(d.floatShares)],
                         ['Short Ratio',        fmt(d.shortRatio, 1)],
-                        ['Short % Float',      d.shortPercentOfFloat != null ? fmtPct(d.shortPercentOfFloat) : '–'],
                         ['52W High',           fmtPrice(d.fiftyTwoWeekHigh)],
                         ['52W Low',            fmtPrice(d.fiftyTwoWeekLow)],
                         ['50D Avg',            fmtPrice(d.fiftyDayAverage)],
@@ -9631,44 +9654,47 @@ class StockDashboard {
                     ]
                 },
                 {
-                    title: 'Per Share',
-                    rows: [
-                        ['EPS (TTM)',      fmtPrice(d.trailingEps)],
-                        ['EPS (Forward)', fmtPrice(d.forwardEps)],
-                        ['Book Value',    fmtPrice(d.bookValue)],
-                        ['Revenue/Share', fmtPrice(d.revenuePerShare)],
-                        ['Cash/Share',    fmtPrice(d.totalCashPerShare)],
-                    ]
-                },
-                {
                     title: 'Analyst',
-                    rows: [
-                        ['Rating',         fmtRec(d.recommendationKey)],
-                        ['# Analysts',     d.numberOfAnalystOpinions != null ? String(d.numberOfAnalystOpinions) : '–'],
-                        ['Target (mean)',  fmtPrice(d.targetMeanPrice)],
-                        ['Target (high)',  fmtPrice(d.targetHighPrice)],
-                        ['Target (low)',   fmtPrice(d.targetLowPrice)],
+                    key: [
+                        ['Rating',        ratingHtml(d.recommendationKey)],
+                        ['Target (mean)', fmtPrice(d.targetMeanPrice)],
+                        ['Target (high)', fmtPrice(d.targetHighPrice)],
+                    ],
+                    more: [
+                        ['# Analysts',   d.numberOfAnalystOpinions != null ? String(d.numberOfAnalystOpinions) : '–'],
+                        ['Target (low)', fmtPrice(d.targetLowPrice)],
                     ]
                 },
             ];
 
+            const row = ([label, val]) => `
+                <div class="fund-row">
+                    <span class="fund-label">${label}</span>
+                    <span class="fund-val">${val}</span>
+                </div>`;
+
             body.innerHTML = sections.map(s => `
-                <div class="fund-modal-section">
-                    <div class="fund-modal-section-title">${s.title}</div>
-                    <table class="fund-modal-table">
-                        ${s.rows.map(([label, val]) => `
-                            <tr>
-                                <td class="fund-modal-label">${label}</td>
-                                <td class="fund-modal-val">${val}</td>
-                            </tr>
-                        `).join('')}
-                    </table>
+                <div class="fund-section">
+                    <div class="fund-section-hd">
+                        <span class="fund-section-title">${s.title}</span>
+                        ${s.more.length ? `<button class="fund-more-btn" data-open="+ ${s.more.length} more" onclick="dashboard.toggleFundamentalsSection(this)">+ ${s.more.length} more</button>` : ''}
+                    </div>
+                    <div class="fund-rows">
+                        ${s.key.map(row).join('')}
+                        ${s.more.length ? `<div class="fund-more-rows hidden">${s.more.map(row).join('')}</div>` : ''}
+                    </div>
                 </div>
             `).join('');
         } catch (e) {
             body.innerHTML = `<div class="fundamentals-loading">Failed to load data</div>`;
             console.error('Fundamentals modal error:', e);
         }
+    }
+
+    toggleFundamentalsSection(btn) {
+        const moreRows = btn.closest('.fund-section').querySelector('.fund-more-rows');
+        const isNowHidden = moreRows.classList.toggle('hidden');
+        btn.textContent = isNowHidden ? btn.dataset.open : '− less';
     }
 
     closeFundamentalsModal() {
