@@ -9807,10 +9807,6 @@ class StockDashboard {
                     ${monthArrow} ${data.monthlyChangePercent}%
                     <span class="tov-metric-label">28 days</span>
                 </div>
-                <div class="tov-metric-secondary tov-price">
-                    ${data.currentPrice}
-                    <span class="tov-metric-label">Price</span>
-                </div>
             </div>
             <div class="tov-metrics">
                 <div class="tov-metric-secondary tov-metric-kv">
@@ -9827,16 +9823,19 @@ class StockDashboard {
                     ${divYield}
                     <span class="tov-metric-label">Div Yield</span>
                 </div>
-                <div class="tov-metric-secondary ${revGrowthClass}">
-                    ${fmtPct(revGrowth)}
-                    <span class="tov-metric-label">Revenue Growth</span>
-                </div>
-                <div class="tov-metric-secondary ${earnGrowthClass}">
-                    ${fmtPct(earnGrowth)}
-                    <span class="tov-metric-label">Earnings Growth</span>
+                <div class="tov-metric-secondary tov-metric-kv">
+                    <div class="tov-kv-row">
+                        <span class="tov-metric-label">Revenue</span>
+                        <span class="${revGrowthClass}">${fmtPct(revGrowth)}</span>
+                    </div>
+                    <div class="tov-kv-row">
+                        <span class="tov-metric-label">Earnings</span>
+                        <span class="${earnGrowthClass}">${fmtPct(earnGrowth)}</span>
+                    </div>
                 </div>
             </div>
             <div class="tov-chart-container">
+                <div class="tov-chart-price">${data.currentPrice}</div>
                 <canvas id="trackingOverviewChart"></canvas>
             </div>
             <div class="tov-ma-row">
@@ -9900,7 +9899,21 @@ class StockDashboard {
                 },
                 scales: {
                     x: { display: false },
-                    y: { display: false }
+                    y: {
+                        display: true,
+                        position: 'right',
+                        ticks: {
+                            color: '#4a5568',
+                            font: { size: 10 },
+                            maxTicksLimit: 5,
+                            callback: (v) => '$' + v.toFixed(0),
+                        },
+                        grid: {
+                            color: 'rgba(255,255,255,0.04)',
+                            drawTicks: false,
+                        },
+                        border: { display: false },
+                    }
                 }
             }
         });

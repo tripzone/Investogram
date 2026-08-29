@@ -3752,7 +3752,7 @@ button:active {
 
 .tov-metrics {
     display: grid;
-    grid-template-columns: repeat(4, 1fr);
+    grid-template-columns: repeat(3, 1fr);
     gap: 8px;
 }
 
@@ -3772,6 +3772,9 @@ button:active {
 .tov-kv-row .tov-metric-label {
     text-transform: uppercase;
 }
+
+.tov-kv-row span.positive { color: #48bb78; }
+.tov-kv-row span.negative { color: #f56565; }
 
 .tov-metric-primary,
 .tov-metric-secondary {
@@ -3808,11 +3811,24 @@ button:active {
 }
 
 .tov-chart-container {
+    position: relative;
     height: 220px;
     background: #111;
     border-radius: 6px;
     overflow: hidden;
     padding: 8px;
+}
+
+.tov-chart-price {
+    position: absolute;
+    top: 12px;
+    left: 14px;
+    font-size: 18px;
+    font-weight: 700;
+    color: #e2e8f0;
+    font-variant-numeric: tabular-nums;
+    pointer-events: none;
+    z-index: 1;
 }
 
 .tov-ma-row {
@@ -3846,10 +3862,6 @@ button:active {
 }
 
 @media (max-width: 600px) {
-    .tov-metrics {
-        grid-template-columns: repeat(2, 1fr);
-    }
-
     .tov-metric-primary {
         font-size: 18px;
     }
