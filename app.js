@@ -9812,28 +9812,28 @@ class StockDashboard {
                     <span class="tov-metric-label">Price</span>
                 </div>
             </div>
-            <div class="tov-metrics tov-metrics-3">
-                <div class="tov-metric-secondary">
-                    ${pe}
-                    <span class="tov-metric-label">P/E</span>
-                </div>
-                <div class="tov-metric-secondary">
-                    ${fwdPe}
-                    <span class="tov-metric-label">Fwd P/E</span>
+            <div class="tov-metrics">
+                <div class="tov-metric-secondary tov-metric-kv">
+                    <div class="tov-kv-row">
+                        <span class="tov-metric-label">P/E</span>
+                        <span>${pe}</span>
+                    </div>
+                    <div class="tov-kv-row">
+                        <span class="tov-metric-label">Fwd P/E</span>
+                        <span>${fwdPe}</span>
+                    </div>
                 </div>
                 <div class="tov-metric-secondary">
                     ${divYield}
                     <span class="tov-metric-label">Div Yield</span>
                 </div>
-            </div>
-            <div class="tov-metrics tov-metrics-2">
                 <div class="tov-metric-secondary ${revGrowthClass}">
                     ${fmtPct(revGrowth)}
-                    <span class="tov-metric-label">Revenue Growth (YoY)</span>
+                    <span class="tov-metric-label">Revenue Growth</span>
                 </div>
                 <div class="tov-metric-secondary ${earnGrowthClass}">
                     ${fmtPct(earnGrowth)}
-                    <span class="tov-metric-label">Earnings Growth (YoY)</span>
+                    <span class="tov-metric-label">Earnings Growth</span>
                 </div>
             </div>
             <div class="tov-chart-container">

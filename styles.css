@@ -3756,12 +3756,21 @@ button:active {
     gap: 8px;
 }
 
-.tov-metrics-3 {
-    grid-template-columns: repeat(3, 1fr);
+.tov-metric-kv {
+    justify-content: center;
+    gap: 6px;
 }
 
-.tov-metrics-2 {
-    grid-template-columns: repeat(2, 1fr);
+.tov-kv-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    width: 100%;
+    font-size: 14px;
+}
+
+.tov-kv-row .tov-metric-label {
+    text-transform: uppercase;
 }
 
 .tov-metric-primary,
@@ -3838,14 +3847,6 @@ button:active {
 
 @media (max-width: 600px) {
     .tov-metrics {
-        grid-template-columns: repeat(2, 1fr);
-    }
-
-    .tov-metrics-3 {
-        grid-template-columns: repeat(3, 1fr);
-    }
-
-    .tov-metrics-2 {
         grid-template-columns: repeat(2, 1fr);
     }
 
