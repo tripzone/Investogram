@@ -9677,11 +9677,11 @@ class StockDashboard {
                 <div class="fund-section">
                     <div class="fund-section-hd">
                         <span class="fund-section-title">${s.title}</span>
-                        ${s.more.length ? `<button class="fund-more-btn" data-open="+ ${s.more.length} more" onclick="dashboard.toggleFundamentalsSection(this)">+ ${s.more.length} more</button>` : ''}
                     </div>
                     <div class="fund-rows">
                         ${s.key.map(row).join('')}
                         ${s.more.length ? `<div class="fund-more-rows hidden">${s.more.map(row).join('')}</div>` : ''}
+                        ${s.more.length ? `<button class="fund-expand-arrow" onclick="dashboard.toggleFundamentalsSection(this)">▾</button>` : ''}
                     </div>
                 </div>
             `).join('');
@@ -9692,9 +9692,9 @@ class StockDashboard {
     }
 
     toggleFundamentalsSection(btn) {
-        const moreRows = btn.closest('.fund-section').querySelector('.fund-more-rows');
+        const moreRows = btn.closest('.fund-rows').querySelector('.fund-more-rows');
         const isNowHidden = moreRows.classList.toggle('hidden');
-        btn.textContent = isNowHidden ? btn.dataset.open : '− less';
+        btn.textContent = isNowHidden ? '▾' : '▴';
     }
 
     closeFundamentalsModal() {

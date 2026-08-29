@@ -3516,6 +3516,7 @@ button:active {
     grid-template-columns: repeat(2, 1fr);
     gap: 20px 28px;
     align-content: start;
+    padding-right: 6px;
 }
 
 .fundamentals-loading {
@@ -3546,19 +3547,21 @@ button:active {
     letter-spacing: 0.08em;
 }
 
-.fund-more-btn {
+.fund-expand-arrow {
+    display: block;
+    width: 100%;
     background: none;
     border: none;
     color: #4a5568;
-    font-size: 10px;
-    font-weight: 600;
+    font-size: 13px;
     cursor: pointer;
-    padding: 0;
-    letter-spacing: 0.04em;
+    padding: 2px 0 0;
+    text-align: center;
     transition: color 0.15s;
+    line-height: 1;
 }
 
-.fund-more-btn:hover {
+.fund-expand-arrow:hover {
     color: #718096;
 }
 
@@ -3618,6 +3621,7 @@ button:active {
 
     .fundamentals-modal-body {
         grid-template-columns: 1fr;
+        padding-right: 16px;
     }
 }
 
