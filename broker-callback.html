@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Broker Connection</title>
+<style>
+    * { box-sizing: border-box; }
+    body {
+        margin: 0;
+        height: 100vh;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: #0f0f0f;
+        color: #ccc;
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    }
+    .box {
+        text-align: center;
+        max-width: 360px;
+        padding: 32px 28px;
+        background: #1a1a1a;
+        border: 1px solid #333;
+        border-radius: 8px;
+    }
+    .icon {
+        width: 40px;
+        height: 40px;
+        margin: 0 auto 14px;
+        border-radius: 50%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+    }
+    .icon.success { background: rgba(72, 187, 120, 0.14); color: #48bb78; }
+    .icon.error { background: rgba(245, 101, 101, 0.14); color: #f56565; }
+    .icon.abandoned { background: rgba(240, 165, 70, 0.14); color: #f0a546; }
+    h1 {
+        font-size: 15px;
+        color: #fff;
+        margin: 0 0 8px;
+    }
+    p {
+        font-size: 12px;
+        color: #888;
+        line-height: 1.6;
+        margin: 0;
+    }
+</style>
+</head>
+<body>
+    <div class="box">
+        <div class="icon" id="icon"></div>
+        <h1 id="title">Connecting…</h1>
+        <p id="msg">One moment.</p>
+    </div>
+
+    <script>
+        (function () {
+            var params = new URLSearchParams(location.search);
+            var status = params.get('status') || 'UNKNOWN';
+
+            var content = {
+                SUCCESS: {
+                    icon: 'success',
+                    svg: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>',
+                    title: 'Connected',
+                    msg: 'Your account is linked. This tab will close automatically — you can also close it yourself and hit "Sync now" in Investogram.'
+                },
+                ERROR: {
+                    icon: 'error',
+                    svg: '×',
+                    title: 'Connection failed',
+                    msg: 'Something went wrong linking your account. Close this tab and try again from Investogram.'
+                },
+                ABANDONED: {
+                    icon: 'abandoned',
+                    svg: '×',
+                    title: 'Connection cancelled',
+                    msg: 'No account was linked. You can close this tab and try again from Investogram.'
+                },
+                UNKNOWN: {
+                    icon: 'abandoned',
+                    svg: '×',
+                    title: 'Done',
+                    msg: 'You can close this tab and return to Investogram.'
+                }
+            };
+
+            var c = content[status] || content.UNKNOWN;
+            document.getElementById('icon').className = 'icon ' + c.icon;
+            document.getElementById('icon').innerHTML = c.svg;
+            document.getElementById('title').textContent = c.title;
+            document.getElementById('msg').textContent = c.msg;
+
+            if (window.opener) {
+                try {
+                    window.opener.postMessage({ source: 'investogram-broker-callback', status: status }, window.location.origin);
+                } catch (e) { /* ignore */ }
+            }
+
+            if (status === 'SUCCESS') {
+                setTimeout(function () { window.close(); }, 2500);
+            }
+        })();
+    </script>
+</body>
+</html>

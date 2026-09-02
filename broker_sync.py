@@ -44,15 +44,25 @@ def register_user(uid):
     return resp.body['userSecret']
 
 
-def get_connect_url(uid, user_secret, broker):
-    """Get a Connection Portal URL for the user to link a specific broker (read-only scope)."""
+def get_connect_url(uid, user_secret, broker, redirect_url=None):
+    """Get a Connection Portal URL for the user to link a specific broker (read-only scope).
+
+    Without a custom_redirect, SnapTrade's own post-connection screen has nowhere to send
+    the user - its "OK" button does nothing (immediate_redirect requires customRedirect to
+    have somewhere to go). Passing redirect_url skips that dead-end screen and sends the
+    user straight back to it with ?status=SUCCESS|ERROR|ABANDONED appended.
+    """
     client = _get_client()
-    resp = client.authentication.login_snap_trade_user(
+    kwargs = dict(
         user_id=uid,
         user_secret=user_secret,
         broker=broker,
         connection_type='read',
     )
+    if redirect_url:
+        kwargs['custom_redirect'] = redirect_url
+        kwargs['immediate_redirect'] = True
+    resp = client.authentication.login_snap_trade_user(**kwargs)
     return resp.body['redirectURI']
 
 

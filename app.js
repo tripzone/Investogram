@@ -372,6 +372,16 @@ class StockDashboard {
             document.getElementById('brokerSecurityInfo').classList.toggle('hidden');
         });
 
+        // Broker Sync: broker-callback.html posts here once the SnapTrade portal tab
+        // finishes (success/error/abandoned), so status refreshes without the user
+        // needing to click back into this tab first.
+        window.addEventListener('message', (e) => {
+            if (e.origin !== window.location.origin) return;
+            if (e.data && e.data.source === 'investogram-broker-callback') {
+                this.refreshBrokerStatus();
+            }
+        });
+
         // Close modal handlers
         uploadModalCloseBtn.addEventListener('click', () => {
             this.closeUploadModal();
@@ -731,7 +741,11 @@ class StockDashboard {
             });
             const data = await resp.json();
             if (!resp.ok) throw new Error(data.error || 'Failed to start connection');
-            window.open(data.url, '_blank', 'noopener');
+            // No 'noopener' here on purpose: broker-callback.html posts a message back to
+            // window.opener once the connection finishes, so we can refresh status without
+            // the user having to manually click back into this tab. The URL itself comes
+            // from our own backend (SnapTrade's real portal), not third-party user input.
+            window.open(data.url, '_blank');
             const row = document.querySelector(`.broker-row[data-broker="${broker}"]`);
             const statusEl = row.querySelector('[data-status]');
             statusEl.textContent = 'Waiting — finish connecting, then click "Sync now"';

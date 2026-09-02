@@ -433,7 +433,8 @@ def broker_connect():
         return jsonify({'error': 'Unsupported broker'}), 400
     try:
         secret = _ensure_broker_secret(uid)
-        url = broker_sync.get_connect_url(uid, secret, broker)
+        redirect_url = request.host_url + 'broker-callback.html'
+        url = broker_sync.get_connect_url(uid, secret, broker, redirect_url)
         return jsonify({'url': url})
     except Exception as e:
         return jsonify({'error': str(e)}), 500
