@@ -47,7 +47,16 @@ async function getAuthToken() {
 
 // Persistent dirty flag — survives page refresh so pullFromServer can detect
 // unsent changes even when syncTimer was cleared by the reload.
-function markDirty()  { _originalSetItem('_sync_dirty', '1'); }
+function markDirty()  {
+    try {
+        _originalSetItem('_sync_dirty', '1');
+    } catch (e) {
+        // Same quota handling as the localStorage.setItem wrapper below — markDirty()
+        // calls _originalSetItem directly (it must, to avoid re-entering schedulePush),
+        // so it needs its own guard rather than inheriting the wrapper's.
+        if (e.name !== 'QuotaExceededError' && e.code !== 22) throw e;
+    }
+}
 function clearDirty() { localStorage.removeItem('_sync_dirty'); }
 function isDirty()    { return localStorage.getItem('_sync_dirty') === '1'; }
 

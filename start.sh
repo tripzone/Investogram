@@ -22,6 +22,12 @@ echo "Press Ctrl+C to stop the server"
 echo ""
 
 export GOOGLE_APPLICATION_CREDENTIALS="$(pwd)/serviceAccountKey.json"
+
+# Broker Sync (SnapTrade) credentials — optional, only needed to test that feature locally
+if [ -f "broker-secrets.sh" ]; then
+    source broker-secrets.sh
+fi
+
 $PYTHON server.py &
 SERVER_PID=$!
 

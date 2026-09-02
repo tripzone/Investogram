@@ -7,8 +7,12 @@ import os
 import json
 import time
 import requests
+from datetime import datetime, timezone
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from flask import Flask, request, jsonify, send_from_directory, Response, stream_with_context
+
+import broker_crypto
+import broker_sync
 
 app = Flask(__name__, static_folder='.')
 PORT = int(os.environ.get('PORT', 8080))
@@ -339,6 +343,20 @@ def stock_details(symbol):
 
 
 # ── User data API (requires Firebase auth) ─────────────────────────────────────
+#
+# ALLOWED_USER_DATA_KEYS mirrors auth.js's SYNC_KEYS — it's the whitelist of
+# localStorage-backed keys the client is allowed to read/write here. This is a
+# hard boundary: `broker_links` (which holds the encrypted SnapTrade user secret)
+# must never round-trip through this generic endpoint, in either direction.
+
+ALLOWED_USER_DATA_KEYS = {
+    'stock_list', 'watchlist', 'collapsed_stocks', 'portfolio_graphs',
+    'portfolio_positions', 'portfolio_positions_uploaded_at',
+    'portfolio_trades', 'portfolio_trades_uploaded_at',
+    'portfolio_categories', 'portfolio_categories_columns', 'portfolio_categories_uploaded_at',
+    'show_values', 'portfolio_excluded_symbols', 'stock_colors',
+}
+
 
 @app.route('/api/user/data', methods=['GET'])
 def get_user_data():
@@ -348,7 +366,8 @@ def get_user_data():
     if not uid:
         return jsonify({'error': 'Unauthorized'}), 401
     doc = db.collection('users').document(uid).get()
-    return jsonify(doc.to_dict() if doc.exists else {})
+    data = doc.to_dict() if doc.exists else {}
+    return jsonify({k: v for k, v in data.items() if k in ALLOWED_USER_DATA_KEYS})
 
 
 @app.route('/api/user/data', methods=['POST'])
@@ -361,8 +380,123 @@ def save_user_data():
     data = request.get_json()
     if not data:
         return jsonify({'error': 'No data provided'}), 400
-    db.collection('users').document(uid).set(data, merge=True)
+    filtered = {k: v for k, v in data.items() if k in ALLOWED_USER_DATA_KEYS}
+    if not filtered:
+        return jsonify({'error': 'No valid keys provided'}), 400
+    db.collection('users').document(uid).set(filtered, merge=True)
     return jsonify({'ok': True})
+
+
+# ── Broker Sync API (SnapTrade — Questrade / Wealthsimple) ────────────────────
+#
+# The SnapTrade `userSecret` is encrypted (Cloud KMS, see broker_crypto.py) and
+# stored under `broker_links.snaptrade_user_secret_enc` on the user's Firestore
+# doc — a field that is never exposed via /api/user/data (see ALLOWED_USER_DATA_KEYS
+# above). Connections themselves (which brokers, connected/disabled) are not
+# cached in Firestore — /api/broker/status asks SnapTrade live, so it can never
+# drift from what's actually connected.
+
+SUPPORTED_BROKERS = {'QUESTRADE', 'WEALTHSIMPLETRADE'}
+
+
+def _get_broker_secret(uid):
+    """Decrypted SnapTrade userSecret for uid, or None if not yet registered."""
+    doc = db.collection('users').document(uid).get()
+    data = doc.to_dict() or {}
+    enc = (data.get('broker_links') or {}).get('snaptrade_user_secret_enc')
+    if not enc:
+        return None
+    return broker_crypto.decrypt_secret(enc)
+
+
+def _ensure_broker_secret(uid):
+    """Return the user's SnapTrade userSecret, registering them on SnapTrade first if needed."""
+    secret = _get_broker_secret(uid)
+    if secret:
+        return secret
+    secret = broker_sync.register_user(uid)
+    enc = broker_crypto.encrypt_secret(secret)
+    db.collection('users').document(uid).set({'broker_links': {'snaptrade_user_secret_enc': enc}}, merge=True)
+    return secret
+
+
+@app.route('/api/broker/connect', methods=['POST'])
+def broker_connect():
+    if db is None:
+        return jsonify({'error': 'Database not configured'}), 503
+    uid = get_uid_from_request()
+    if not uid:
+        return jsonify({'error': 'Unauthorized'}), 401
+    body = request.get_json() or {}
+    broker = body.get('broker')
+    if broker not in SUPPORTED_BROKERS:
+        return jsonify({'error': 'Unsupported broker'}), 400
+    try:
+        secret = _ensure_broker_secret(uid)
+        url = broker_sync.get_connect_url(uid, secret, broker)
+        return jsonify({'url': url})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/broker/sync', methods=['POST'])
+def broker_sync_route():
+    if db is None:
+        return jsonify({'error': 'Database not configured'}), 503
+    uid = get_uid_from_request()
+    if not uid:
+        return jsonify({'error': 'Unauthorized'}), 401
+    secret = _get_broker_secret(uid)
+    if not secret:
+        return jsonify({'error': 'No broker connection for this user'}), 400
+    try:
+        result = broker_sync.sync_all(uid, secret)
+        db.collection('users').document(uid).set(
+            {'broker_links': {'last_synced_at': datetime.now(timezone.utc).isoformat()}}, merge=True
+        )
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/broker/status', methods=['GET'])
+def broker_status():
+    if db is None:
+        return jsonify({'error': 'Database not configured'}), 503
+    uid = get_uid_from_request()
+    if not uid:
+        return jsonify({'error': 'Unauthorized'}), 401
+    try:
+        secret = _get_broker_secret(uid)
+        if not secret:
+            return jsonify({'connections': [], 'last_synced_at': None})
+        connections = broker_sync.list_connections(uid, secret)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+    doc = db.collection('users').document(uid).get()
+    last_synced_at = ((doc.to_dict() or {}).get('broker_links') or {}).get('last_synced_at')
+    return jsonify({'connections': connections, 'last_synced_at': last_synced_at})
+
+
+@app.route('/api/broker/disconnect', methods=['POST'])
+def broker_disconnect():
+    if db is None:
+        return jsonify({'error': 'Database not configured'}), 503
+    uid = get_uid_from_request()
+    if not uid:
+        return jsonify({'error': 'Unauthorized'}), 401
+    body = request.get_json() or {}
+    connection_id = body.get('connection_id')
+    if not connection_id:
+        return jsonify({'error': 'connection_id required'}), 400
+    secret = _get_broker_secret(uid)
+    if not secret:
+        return jsonify({'error': 'No broker connection for this user'}), 400
+    try:
+        broker_sync.disconnect(uid, secret, connection_id)
+        return jsonify({'ok': True})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
 
 
 # ── Prompt loader ─────────────────────────────────────────────────────────────

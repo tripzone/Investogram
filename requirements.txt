@@ -3,3 +3,5 @@ requests>=2.28
 firebase-admin>=6.0
 google-genai>=0.8.0
 yfinance>=0.2.0
+google-cloud-kms>=2.24.0
+snaptrade-python-sdk>=13.0.0

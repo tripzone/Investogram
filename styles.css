@@ -3917,6 +3917,9 @@ button:active {
     max-width: 440px;
     padding: 20px;
     background: #242424;
+    height: auto;
+    max-height: 68vh;
+    overflow-y: auto;
 }
 
 .modal-close-btn-visible {
@@ -4027,15 +4030,6 @@ button:active {
     font-weight: 600;
     color: inherit;
     letter-spacing: 0.3px;
-}
-
-.upload-source-label small {
-    font-size: 10px;
-    color: #444;
-}
-
-.upload-source-option:hover:not(:disabled) .upload-source-label small {
-    color: #666;
 }
 
 .upload-modal-title {
@@ -4249,5 +4243,373 @@ button:active {
     background: transparent;
     color: #555;
     border-color: #2a2a2a;
+}
+
+.broker-rows {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.broker-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 12px;
+    background: #1a1a1a;
+    border: 1px solid #333;
+    border-radius: 3px;
+}
+
+.broker-row-info {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    min-width: 0;
+}
+
+.broker-row-info strong {
+    font-size: 12px;
+    color: #ccc;
+}
+
+.broker-row-status {
+    display: inline-block;
+    width: fit-content;
+    padding: 2px 8px;
+    border-radius: 10px;
+    font-size: 9px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.4px;
+    white-space: nowrap;
+}
+
+.broker-row-status.status-not-connected {
+    background: rgba(240, 165, 70, 0.14);
+    color: #f0a546;
+}
+
+.broker-row-status.status-connected {
+    background: rgba(72, 187, 120, 0.14);
+    color: #6fd196;
+}
+
+.broker-row-status.status-disabled {
+    background: rgba(245, 101, 101, 0.14);
+    color: #f56565;
+}
+
+.broker-row-status.status-waiting {
+    white-space: normal;
+    text-transform: none;
+    letter-spacing: 0;
+    background: rgba(102, 126, 234, 0.14);
+    color: #8fa3f0;
+}
+
+.broker-row-actions {
+    display: flex;
+    gap: 6px;
+    flex-shrink: 0;
+}
+
+.broker-row-actions button {
+    white-space: nowrap;
+}
+
+.broker-row-actions button.hidden {
+    display: none;
+}
+
+.broker-last-synced {
+    font-size: 11px;
+    color: #666;
+    text-align: center;
+}
+
+.broker-last-synced.hidden {
+    display: none;
+}
+
+.broker-security-section {
+    padding-top: 4px;
+    border-top: 1px solid #222;
+}
+
+.broker-security-toggle {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    margin: 0 auto;
+    padding: 4px 2px;
+    background: transparent;
+    border: none;
+    color: #555;
+    font-size: 10px;
+    font-weight: 500;
+    text-transform: uppercase;
+    letter-spacing: 0.4px;
+    cursor: pointer;
+    transition: color 0.15s;
+}
+
+.broker-security-toggle:hover {
+    color: #888;
+}
+
+.broker-security-info {
+    margin-top: 6px;
+    padding: 10px 12px;
+    background: #1a1a1a;
+    border: 1px solid #2a2a2a;
+    border-radius: 3px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.broker-security-info.hidden {
+    display: none;
+}
+
+.broker-security-info p {
+    margin: 0;
+    font-size: 10px;
+    line-height: 1.5;
+    color: #888;
+}
+
+.broker-security-info p strong {
+    color: #aaa;
+}
+
+/* Manual Edits modal */
+
+.manual-edits-modal-content {
+    padding: 20px;
+    gap: 12px;
+    max-width: 1200px;
+}
+
+.manual-edits-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-shrink: 0;
+    padding-right: 28px;
+}
+
+.manual-edits-header .upload-modal-title {
+    margin: 0;
+}
+
+.manual-edits-tabs {
+    display: flex;
+    gap: 4px;
+}
+
+.manual-edits-tab {
+    padding: 6px 14px;
+    background: transparent;
+    border: none;
+    border-bottom: 2px solid transparent;
+    color: #888;
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    cursor: pointer;
+    transition: color 0.15s, border-color 0.15s;
+}
+
+.manual-edits-tab:hover {
+    color: #aaa;
+}
+
+.manual-edits-tab.active {
+    color: #e2e8f0;
+    border-bottom-color: #667eea;
+}
+
+.manual-edits-toolbar {
+    display: flex;
+    justify-content: flex-end;
+    flex-shrink: 0;
+}
+
+.manual-add-row-btn {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 7px 14px;
+    background: transparent;
+    color: #667eea;
+    border: 1px solid rgba(102, 126, 234, 0.4);
+    border-radius: 3px;
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    cursor: pointer;
+    transition: all 0.15s;
+}
+
+.manual-add-row-btn:hover {
+    background: rgba(102, 126, 234, 0.1);
+    border-color: #667eea;
+}
+
+.manual-edits-table-wrapper {
+    flex: 1;
+    min-height: 0;
+    overflow: auto;
+    border: 1px solid #222;
+    border-radius: 4px;
+}
+
+.manual-edits-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12px;
+}
+
+.manual-edits-table thead th {
+    position: sticky;
+    top: 0;
+    background: #111;
+    color: #444;
+    font-size: 9px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    text-align: left;
+    padding: 8px 12px;
+    border-bottom: 1px solid #222;
+    z-index: 1;
+    white-space: nowrap;
+}
+
+.manual-edits-table td {
+    padding: 7px 12px;
+    color: #bbb;
+    border-bottom: 1px solid #1a1a1a;
+    white-space: nowrap;
+}
+
+.manual-edits-table tbody tr:last-child td {
+    border-bottom: none;
+}
+
+.manual-edits-table tbody tr:hover td {
+    background: rgba(255, 255, 255, 0.025);
+}
+
+.manual-edits-table tr.me-editing-row td {
+    background: rgba(102, 126, 234, 0.04);
+}
+
+.manual-edits-empty-row td {
+    text-align: center;
+    color: #555;
+    padding: 40px 20px;
+    white-space: normal;
+}
+
+.me-input {
+    width: 100%;
+    min-width: 76px;
+    padding: 5px 7px;
+    background: #242424;
+    border: 1px solid #2a2a2a;
+    border-radius: 3px;
+    color: #fff;
+    font-size: 12px;
+    font-family: inherit;
+}
+
+.me-input:focus {
+    outline: none;
+    border-color: #667eea;
+    background: #2a2a2a;
+}
+
+select.me-input {
+    text-transform: capitalize;
+}
+
+.me-computed {
+    color: #555;
+    font-style: italic;
+}
+
+.me-source-badge {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 10px;
+    font-size: 9px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.4px;
+    white-space: nowrap;
+}
+
+.me-source-badge.csv {
+    background: rgba(255, 255, 255, 0.06);
+    color: #888;
+}
+
+.me-source-badge.manual {
+    background: rgba(102, 126, 234, 0.14);
+    color: #8fa3f0;
+}
+
+.me-source-badge.synced {
+    background: rgba(72, 187, 120, 0.14);
+    color: #6fd196;
+}
+
+.me-row-actions {
+    display: flex;
+    gap: 4px;
+    justify-content: flex-end;
+}
+
+.me-icon-btn {
+    width: 24px;
+    height: 24px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    background: transparent;
+    border: none;
+    border-radius: 50%;
+    color: #666;
+    cursor: pointer;
+    font-size: 15px;
+    line-height: 1;
+    transition: all 0.15s;
+}
+
+.me-icon-btn:hover {
+    background: rgba(255, 255, 255, 0.06);
+    color: #aaa;
+}
+
+.me-icon-btn svg {
+    flex-shrink: 0;
+    width: 13px;
+    height: 13px;
+}
+
+.me-icon-btn.me-delete:hover,
+.me-icon-btn.me-cancel:hover {
+    color: #fc8181;
+}
+
+.me-icon-btn.me-save:hover {
+    color: #48bb78;
 }
 

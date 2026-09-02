@@ -32,3 +32,6 @@ firebase-config.js
 
 # Firebase service account key — never commit
 serviceAccountKey.json
+
+# Broker Sync credentials (SnapTrade keys, KMS key name) — never commit
+broker-secrets.sh

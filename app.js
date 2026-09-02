@@ -56,6 +56,7 @@ class StockDashboard {
         this.setupTabs();
         this.setupWatchlistControls();
         this.setupUploadModal();
+        this.setupManualEditsModal();
         this.setupGraphSelector();
         this.setupValuesToggle();
         this.setupPortfolioRefresh();
@@ -314,6 +315,9 @@ class StockDashboard {
         const fileUploadSourceBtn = document.getElementById('fileUploadSourceBtn');
         const uploadBackBtn = document.getElementById('uploadBackBtn');
         const uploadBtnMobile = document.getElementById('uploadBtnMobile');
+        const brokerSyncSourceBtn = document.getElementById('brokerSyncSourceBtn');
+        const brokerBackBtn = document.getElementById('brokerBackBtn');
+        const brokerRows = document.getElementById('brokerRows');
 
         // Open upload modal (source picker)
         uploadBtn.addEventListener('click', () => {
@@ -334,6 +338,38 @@ class StockDashboard {
         // Back to source picker
         uploadBackBtn.addEventListener('click', () => {
             this.resetUploadModal();
+        });
+
+        // Source picker: Broker Sync
+        brokerSyncSourceBtn.addEventListener('click', () => {
+            document.getElementById('uploadSourceStep').classList.add('hidden');
+            document.getElementById('uploadBrokerStep').classList.remove('hidden');
+            this.refreshBrokerStatus();
+        });
+
+        brokerBackBtn.addEventListener('click', () => {
+            this.resetUploadModal();
+        });
+
+        brokerRows.addEventListener('click', (e) => {
+            const btn = e.target.closest('button[data-action]');
+            if (!btn) return;
+            const row = btn.closest('.broker-row');
+            const broker = row.dataset.broker;
+            if (btn.dataset.action === 'connect') this.brokerConnect(broker);
+            else if (btn.dataset.action === 'sync') this.brokerSync();
+            else if (btn.dataset.action === 'disconnect') this.brokerDisconnect(row.dataset.connectionId);
+        });
+
+        // Source picker: Manual Edits — opens its own larger modal, not a step within this one
+        document.getElementById('manualEditsSourceBtn').addEventListener('click', () => {
+            this.closeUploadModal();
+            this.openManualEditsModal();
+        });
+
+        // Broker Sync: security/privacy disclosure toggle
+        document.getElementById('brokerSecurityToggle').addEventListener('click', () => {
+            document.getElementById('brokerSecurityInfo').classList.toggle('hidden');
         });
 
         // Close modal handlers
@@ -400,6 +436,8 @@ class StockDashboard {
         // Reset to source step
         document.getElementById('uploadSourceStep').classList.remove('hidden');
         document.getElementById('uploadFileStep').classList.add('hidden');
+        document.getElementById('uploadBrokerStep').classList.add('hidden');
+        document.getElementById('brokerSecurityInfo').classList.add('hidden');
 
         // Clear file selection
         const fileInput = document.getElementById('fileInput');
@@ -480,6 +518,7 @@ class StockDashboard {
 
                 // Update indicators
                 this.updateDataIndicators();
+                this.renderPortfolioGraphs();
 
                 // Success
                 this.closeUploadModal();
@@ -491,11 +530,12 @@ class StockDashboard {
                     throw new Error('No valid data found in file');
                 }
 
-                // Store in localStorage
-                this.savePortfolioData(uploadType, result);
+                // Store in localStorage, preserving any synced/manual rows already there
+                if (!this.reconcilePortfolioData(uploadType, result, 'csv')) return;
 
                 // Update indicators
                 this.updateDataIndicators();
+                this.renderPortfolioGraphs();
 
                 // Success
                 this.closeUploadModal();
@@ -588,10 +628,429 @@ class StockDashboard {
         return data;
     }
 
-    savePortfolioData(type, data) {
+    // Merges newRows into the stored array, replacing only rows previously written by the
+    // same `source` ('csv' | 'synced' | 'manual') and leaving rows from every other source
+    // untouched. Rows saved before this field existed have no `source` and are treated as
+    // 'csv' (the only path that existed then), so old data isn't wiped by this change.
+    // localStorage.setItem (patched in auth.js) silently swallows QuotaExceededError —
+    // logs a warning and returns instead of throwing, so a caller checking nothing would
+    // wrongly report success while the write never actually happened. Read back what we
+    // just wrote to detect that.
+    trySetLocalStorage(key, value) {
+        localStorage.setItem(key, value);
+        return localStorage.getItem(key) === value;
+    }
+
+    reconcilePortfolioData(type, newRows, source) {
         const key = type === 'positions' ? 'portfolio_positions' : 'portfolio_trades';
-        localStorage.setItem(key, JSON.stringify(data));
+        const existing = this.loadPortfolioData(type) || [];
+        const preserved = existing.filter(row => (row.source || 'csv') !== source);
+        const tagged = newRows.map(row => ({ ...row, source }));
+        if (!this.trySetLocalStorage(key, JSON.stringify([...preserved, ...tagged]))) {
+            alert('Your browser storage is full, so this could not be saved. Free up space (e.g. clear site data for this page) and try again.');
+            return false;
+        }
         localStorage.setItem(key + '_uploaded_at', new Date().toISOString());
+        return true;
+    }
+
+    // ── Broker Sync (SnapTrade) ─────────────────────────────────────────────
+
+    async refreshBrokerStatus() {
+        const brokerError = document.getElementById('brokerError');
+        brokerError.classList.add('hidden');
+        const token = typeof getAuthToken === 'function' ? await getAuthToken() : null;
+        if (!token) {
+            brokerError.textContent = 'Sign in to use Broker Sync.';
+            brokerError.classList.remove('hidden');
+            return;
+        }
+        try {
+            const resp = await fetch('/api/broker/status', { headers: { 'Authorization': `Bearer ${token}` } });
+            const data = await resp.json();
+            if (!resp.ok) throw new Error(data.error || 'Failed to load broker status');
+            this.renderBrokerStatus(data);
+        } catch (e) {
+            brokerError.textContent = e.message;
+            brokerError.classList.remove('hidden');
+        }
+    }
+
+    renderBrokerStatus(data) {
+        const connections = data.connections || [];
+        document.querySelectorAll('.broker-row').forEach(row => {
+            const broker = row.dataset.broker;
+            const conn = connections.find(c => c.broker === broker);
+            const statusEl = row.querySelector('[data-status]');
+            const connectBtn = row.querySelector('.broker-connect-btn');
+            const syncBtn = row.querySelector('.broker-sync-btn');
+            const disconnectBtn = row.querySelector('.broker-disconnect-btn');
+            statusEl.classList.remove('status-not-connected', 'status-connected', 'status-disabled', 'status-waiting');
+            if (conn) {
+                row.dataset.connectionId = conn.id;
+                connectBtn.classList.toggle('hidden', !conn.disabled);
+                connectBtn.textContent = 'Reconnect';
+                syncBtn.classList.toggle('hidden', !!conn.disabled);
+                disconnectBtn.classList.remove('hidden');
+                statusEl.textContent = conn.disabled ? 'Needs reconnecting' : 'Connected';
+                statusEl.classList.add(conn.disabled ? 'status-disabled' : 'status-connected');
+            } else {
+                delete row.dataset.connectionId;
+                connectBtn.classList.remove('hidden');
+                connectBtn.textContent = 'Connect';
+                syncBtn.classList.add('hidden');
+                disconnectBtn.classList.add('hidden');
+                statusEl.textContent = 'Not connected';
+                statusEl.classList.add('status-not-connected');
+            }
+        });
+
+        const lastSyncedEl = document.getElementById('brokerLastSynced');
+        if (data.last_synced_at) {
+            lastSyncedEl.textContent = `Last synced: ${new Date(data.last_synced_at).toLocaleString()}`;
+            lastSyncedEl.classList.remove('hidden');
+        } else {
+            lastSyncedEl.classList.add('hidden');
+        }
+    }
+
+    async brokerConnect(broker) {
+        const brokerError = document.getElementById('brokerError');
+        brokerError.classList.add('hidden');
+        const token = typeof getAuthToken === 'function' ? await getAuthToken() : null;
+        if (!token) {
+            brokerError.textContent = 'Sign in to use Broker Sync.';
+            brokerError.classList.remove('hidden');
+            return;
+        }
+        try {
+            const resp = await fetch('/api/broker/connect', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+                body: JSON.stringify({ broker })
+            });
+            const data = await resp.json();
+            if (!resp.ok) throw new Error(data.error || 'Failed to start connection');
+            window.open(data.url, '_blank', 'noopener');
+            const row = document.querySelector(`.broker-row[data-broker="${broker}"]`);
+            const statusEl = row.querySelector('[data-status]');
+            statusEl.textContent = 'Waiting — finish connecting, then click "Sync now"';
+            statusEl.classList.remove('status-not-connected', 'status-connected', 'status-disabled');
+            statusEl.classList.add('status-waiting');
+            row.querySelector('.broker-sync-btn').classList.remove('hidden');
+        } catch (e) {
+            brokerError.textContent = e.message;
+            brokerError.classList.remove('hidden');
+        }
+    }
+
+    async brokerSync() {
+        const brokerError = document.getElementById('brokerError');
+        brokerError.classList.add('hidden');
+        const token = typeof getAuthToken === 'function' ? await getAuthToken() : null;
+        if (!token) return;
+        const syncBtns = document.querySelectorAll('.broker-sync-btn');
+        syncBtns.forEach(b => { b.disabled = true; b.textContent = 'Syncing...'; });
+        try {
+            const resp = await fetch('/api/broker/sync', {
+                method: 'POST',
+                headers: { 'Authorization': `Bearer ${token}` }
+            });
+            const data = await resp.json();
+            if (!resp.ok) throw new Error(data.error || 'Sync failed');
+            const positionsOk = this.reconcilePortfolioData('positions', data.positions || [], 'synced');
+            const tradesOk = positionsOk && this.reconcilePortfolioData('trades', data.trades || [], 'synced');
+            if (!tradesOk) return;
+            this.updateDataIndicators();
+            this.renderPortfolioGraphs();
+            await this.refreshBrokerStatus();
+        } catch (e) {
+            brokerError.textContent = e.message;
+            brokerError.classList.remove('hidden');
+        } finally {
+            syncBtns.forEach(b => { b.disabled = false; b.textContent = 'Sync now'; });
+        }
+    }
+
+    async brokerDisconnect(connectionId) {
+        if (!connectionId) return;
+        if (!confirm('Disconnect this broker? Positions/trades already synced into Investogram will stay until your next sync.')) return;
+        const brokerError = document.getElementById('brokerError');
+        brokerError.classList.add('hidden');
+        const token = typeof getAuthToken === 'function' ? await getAuthToken() : null;
+        if (!token) return;
+        try {
+            const resp = await fetch('/api/broker/disconnect', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+                body: JSON.stringify({ connection_id: connectionId })
+            });
+            const data = await resp.json();
+            if (!resp.ok) throw new Error(data.error || 'Failed to disconnect');
+            await this.refreshBrokerStatus();
+        } catch (e) {
+            brokerError.textContent = e.message;
+            brokerError.classList.remove('hidden');
+        }
+    }
+
+    // ── Manual Edits ────────────────────────────────────────────────────────
+    //
+    // Shows every row in portfolio_positions/portfolio_trades (any source) in an
+    // editable table. Adding or editing a row always tags it `source: 'manual'` —
+    // once you've hand-set a value, a future CSV upload or broker sync shouldn't
+    // silently overwrite it (see reconcilePortfolioData, which only ever touches
+    // rows matching the source it's writing). Deleting a synced row just removes
+    // it now; since sync regenerates its whole batch from the broker each time,
+    // a deleted synced row can reappear on the next sync — the delete button's
+    // tooltip says so for synced rows.
+
+    escapeHtml(value) {
+        const div = document.createElement('div');
+        div.textContent = value;
+        return div.innerHTML;
+    }
+
+    fmtManualNum(v) {
+        if (v === undefined || v === null || v === '') return '—';
+        const n = Number(v);
+        if (Number.isNaN(n)) return '—';
+        return n % 1 === 0 ? n.toLocaleString() : n.toLocaleString('en-US', { maximumFractionDigits: 4 });
+    }
+
+    getManualEditsColumns(type) {
+        return type === 'positions'
+            ? [
+                { key: 'symbol', label: 'Symbol', type: 'text' },
+                { key: 'quantity', label: 'Quantity', type: 'number' },
+                { key: 'average_entry_price', label: 'Avg Price', type: 'number' },
+                { key: 'currency', label: 'Currency', type: 'text' },
+            ]
+            : [
+                { key: 'transaction_date', label: 'Date', type: 'date' },
+                { key: 'symbol', label: 'Symbol', type: 'text' },
+                { key: 'type', label: 'Type', type: 'select', options: ['buy', 'sell', 'dividend'] },
+                { key: 'quantity', label: 'Quantity', type: 'number' },
+                { key: 'price', label: 'Price', type: 'number', optional: true },
+                { key: 'net_amount', label: 'Net Amount', type: 'number', optional: true },
+                { key: 'currency', label: 'Currency', type: 'text' },
+            ];
+    }
+
+    setupManualEditsModal() {
+        const modal = document.getElementById('manualEditsModal');
+
+        document.getElementById('manualEditsCloseBtn').addEventListener('click', () => this.closeManualEditsModal());
+        modal.addEventListener('click', (e) => {
+            if (e.target.id === 'manualEditsModal') this.closeManualEditsModal();
+        });
+
+        document.querySelectorAll('.manual-edits-tab').forEach(tab => {
+            tab.addEventListener('click', () => this.switchManualEditsTab(tab.dataset.type));
+        });
+
+        document.getElementById('manualAddRowBtn').addEventListener('click', () => {
+            this.manualEditsEditingIndex = 'new';
+            this.renderManualEditsTable();
+            const firstInput = document.querySelector('#manualEditsTbody tr.me-editing-row input, #manualEditsTbody tr.me-editing-row select');
+            if (firstInput) firstInput.focus();
+        });
+
+        document.getElementById('manualEditsTbody').addEventListener('click', (e) => {
+            const btn = e.target.closest('button[data-action]');
+            if (!btn) return;
+            const indexAttr = btn.dataset.index;
+            const index = indexAttr === 'new' ? 'new' : parseInt(indexAttr, 10);
+            const action = btn.dataset.action;
+            if (action === 'edit') { this.manualEditsEditingIndex = index; this.renderManualEditsTable(); }
+            else if (action === 'cancel') { this.manualEditsEditingIndex = null; this.renderManualEditsTable(); }
+            else if (action === 'delete') { this.manualDeleteRow(index); }
+            else if (action === 'save') { this.manualSaveRow(index); }
+        });
+    }
+
+    openManualEditsModal() {
+        document.getElementById('manualEditsModal').classList.remove('hidden');
+        this.manualEditsType = 'positions';
+        this.manualEditsEditingIndex = null;
+        document.querySelectorAll('.manual-edits-tab').forEach(t => t.classList.toggle('active', t.dataset.type === 'positions'));
+        this.renderManualEditsTable();
+    }
+
+    closeManualEditsModal() {
+        document.getElementById('manualEditsModal').classList.add('hidden');
+        this.manualEditsEditingIndex = null;
+    }
+
+    switchManualEditsTab(type) {
+        this.manualEditsType = type;
+        this.manualEditsEditingIndex = null;
+        document.querySelectorAll('.manual-edits-tab').forEach(t => t.classList.toggle('active', t.dataset.type === type));
+        this.renderManualEditsTable();
+    }
+
+    renderManualEditsTable() {
+        const type = this.manualEditsType;
+        const columns = this.getManualEditsColumns(type);
+        const rows = this.loadPortfolioData(type) || [];
+        const thead = document.getElementById('manualEditsThead');
+        const tbody = document.getElementById('manualEditsTbody');
+
+        const extraHeaders = type === 'positions' ? ['Total Cost'] : [];
+        const totalCols = columns.length + extraHeaders.length + 2; // + Source + Actions
+
+        thead.innerHTML = `<tr>${columns.map(c => `<th>${this.escapeHtml(c.label)}</th>`).join('')}${extraHeaders.map(h => `<th>${this.escapeHtml(h)}</th>`).join('')}<th>Source</th><th></th></tr>`;
+
+        let html = '';
+        if (this.manualEditsEditingIndex === 'new') {
+            html += this.renderManualEditRow(type, columns, {}, 'new');
+        }
+        rows.forEach((row, i) => {
+            html += (this.manualEditsEditingIndex === i)
+                ? this.renderManualEditRow(type, columns, row, i)
+                : this.renderManualDisplayRow(type, columns, row, i);
+        });
+        if (!html) {
+            html = `<tr class="manual-edits-empty-row"><td colspan="${totalCols}">No ${type} yet — click "Add Row" to add one.</td></tr>`;
+        }
+        tbody.innerHTML = html;
+    }
+
+    renderManualDisplayRow(type, columns, row, index) {
+        const cells = columns.map(c => {
+            const raw = row[c.key];
+            let display;
+            if (raw === undefined || raw === null || raw === '') display = '—';
+            else if (c.type === 'number') display = this.fmtManualNum(raw);
+            else display = this.escapeHtml(String(raw));
+            return `<td>${display}</td>`;
+        }).join('');
+
+        let extraCells = '';
+        if (type === 'positions') {
+            const totalCost = row.total_cost !== undefined ? row.total_cost : (row.quantity * row.average_entry_price);
+            extraCells = `<td>${this.fmtManualNum(totalCost)}</td>`;
+        }
+
+        const source = row.source || 'csv';
+        const sourceLabel = source === 'synced'
+            ? `Synced${row.broker ? ' · ' + this.escapeHtml(row.broker) : ''}`
+            : (source === 'manual' ? 'Manual' : 'CSV');
+        const sourceCell = `<td><span class="me-source-badge ${source === 'synced' ? 'synced' : source}">${sourceLabel}</span></td>`;
+
+        const deleteTitle = source === 'synced' ? 'title="Synced from your broker — may reappear on your next sync"' : 'title="Remove"';
+
+        const actions = `<td class="me-row-actions">
+            <button class="me-icon-btn me-edit" data-action="edit" data-index="${index}" title="Edit">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"></path><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"></path></svg>
+            </button>
+            <button class="me-icon-btn me-delete" data-action="delete" data-index="${index}" ${deleteTitle}>×</button>
+        </td>`;
+
+        return `<tr>${cells}${extraCells}${sourceCell}${actions}</tr>`;
+    }
+
+    renderManualEditRow(type, columns, row, index) {
+        const cells = columns.map(c => {
+            const raw = row[c.key];
+            const val = (raw === undefined || raw === null) ? '' : raw;
+            if (c.type === 'select') {
+                const opts = c.options.map(o =>
+                    `<option value="${o}" ${val === o ? 'selected' : ''}>${o.charAt(0).toUpperCase() + o.slice(1)}</option>`
+                ).join('');
+                return `<td><select class="me-input" data-field="${c.key}">${opts}</select></td>`;
+            }
+            const inputType = c.type === 'date' ? 'date' : (c.type === 'number' ? 'number' : 'text');
+            const displayVal = c.type === 'date' && val ? String(val).slice(0, 10) : val;
+            return `<td><input class="me-input" type="${inputType}" data-field="${c.key}" value="${this.escapeHtml(String(displayVal))}" ${c.type === 'number' ? 'step="any"' : ''}></td>`;
+        }).join('');
+
+        const extraCells = type === 'positions' ? `<td class="me-computed">auto</td>` : '';
+        const sourceCell = `<td><span class="me-source-badge manual">Manual</span></td>`;
+
+        const actions = `<td class="me-row-actions">
+            <button class="me-icon-btn me-save" data-action="save" data-index="${index}" title="Save">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
+            </button>
+            <button class="me-icon-btn me-cancel" data-action="cancel" data-index="${index}" title="Cancel">×</button>
+        </td>`;
+
+        return `<tr class="me-editing-row">${cells}${extraCells}${sourceCell}${actions}</tr>`;
+    }
+
+    manualSaveRow(index) {
+        const type = this.manualEditsType;
+        const columns = this.getManualEditsColumns(type);
+        const editingRowEl = document.querySelector('#manualEditsTbody tr.me-editing-row');
+        if (!editingRowEl) return;
+
+        const values = {};
+        columns.forEach(c => {
+            const el = editingRowEl.querySelector(`[data-field="${c.key}"]`);
+            const raw = el ? el.value.trim() : '';
+            if (c.type === 'number') {
+                values[c.key] = raw === '' ? undefined : parseFloat(raw);
+            } else if (c.key === 'symbol' || c.key === 'currency') {
+                values[c.key] = raw.toUpperCase();
+            } else {
+                values[c.key] = raw;
+            }
+        });
+
+        if (!values.symbol) { alert('Symbol is required'); return; }
+        if (values.quantity === undefined || Number.isNaN(values.quantity)) { alert('Quantity is required'); return; }
+        if (!values.currency) { alert('Currency is required'); return; }
+
+        if (type === 'positions') {
+            if (values.average_entry_price === undefined || Number.isNaN(values.average_entry_price)) {
+                alert('Avg Price is required');
+                return;
+            }
+            values.total_cost = values.quantity * values.average_entry_price;
+        } else {
+            if (!values.transaction_date) { alert('Date is required'); return; }
+            if (!values.type) { alert('Type is required'); return; }
+            if (values.price === undefined || Number.isNaN(values.price)) delete values.price;
+            if (values.net_amount === undefined || Number.isNaN(values.net_amount)) delete values.net_amount;
+        }
+
+        const key = type === 'positions' ? 'portfolio_positions' : 'portfolio_trades';
+        const rows = this.loadPortfolioData(type) || [];
+        if (index === 'new') {
+            rows.push({ ...values, source: 'manual' });
+        } else {
+            rows[index] = { ...rows[index], ...values, source: 'manual' };
+            delete rows[index].broker; // no longer attributable to a single broker once hand-edited
+        }
+        // Leave the row in edit mode on failure — re-rendering here would discard what
+        // the user just typed, and the alert already explains why nothing was saved.
+        if (!this.trySetLocalStorage(key, JSON.stringify(rows))) {
+            alert('Your browser storage is full, so this row could not be saved. Free up space (e.g. clear site data for this page) and try again.');
+            return;
+        }
+        localStorage.setItem(key + '_uploaded_at', new Date().toISOString());
+
+        this.manualEditsEditingIndex = null;
+        this.renderManualEditsTable();
+        this.updateDataIndicators();
+        this.renderPortfolioGraphs();
+    }
+
+    manualDeleteRow(index) {
+        if (!confirm('Remove this row?')) return;
+        const type = this.manualEditsType;
+        const key = type === 'positions' ? 'portfolio_positions' : 'portfolio_trades';
+        const rows = this.loadPortfolioData(type) || [];
+        rows.splice(index, 1);
+        if (!this.trySetLocalStorage(key, JSON.stringify(rows))) {
+            alert('Your browser storage is full, so this row could not be removed. Free up space (e.g. clear site data for this page) and try again.');
+            return;
+        }
+        localStorage.setItem(key + '_uploaded_at', new Date().toISOString());
+        if (this.manualEditsEditingIndex === index) this.manualEditsEditingIndex = null;
+        this.renderManualEditsTable();
+        this.updateDataIndicators();
+        this.renderPortfolioGraphs();
     }
 
     // Normalize a ticker symbol for cross-CSV matching. Strips exchange suffixes so that

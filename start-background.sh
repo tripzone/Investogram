@@ -22,6 +22,11 @@ fi
 PYTHON="python3.11"
 
 export GOOGLE_APPLICATION_CREDENTIALS="$(pwd)/serviceAccountKey.json"
+
+if [ -f "broker-secrets.sh" ]; then
+    source broker-secrets.sh
+fi
+
 nohup $PYTHON server.py > server.log 2>&1 &
 SERVER_PID=$!
 
