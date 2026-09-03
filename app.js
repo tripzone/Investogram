@@ -870,6 +870,9 @@ class StockDashboard {
             if (firstInput) firstInput.focus();
         });
 
+        document.getElementById('manualDownloadBtn').addEventListener('click', () => this.manualDownloadCsv());
+        document.getElementById('manualClearAllBtn').addEventListener('click', () => this.manualClearAll());
+
         document.getElementById('manualEditsTbody').addEventListener('click', (e) => {
             const btn = e.target.closest('button[data-action]');
             if (!btn) return;
@@ -1065,6 +1068,60 @@ class StockDashboard {
         this.renderManualEditsTable();
         this.updateDataIndicators();
         this.renderPortfolioGraphs();
+    }
+
+    manualClearAll() {
+        const type = this.manualEditsType;
+        const key = type === 'positions' ? 'portfolio_positions' : 'portfolio_trades';
+        const rows = this.loadPortfolioData(type) || [];
+        if (rows.length === 0) return;
+        if (!confirm(`Remove all ${rows.length} ${type} — including CSV-uploaded and synced rows, not just manual ones? This can't be undone here; you'd need to re-upload a CSV or sync your broker again to get them back.`)) {
+            return;
+        }
+        if (!this.trySetLocalStorage(key, JSON.stringify([]))) {
+            alert('Your browser storage is full, so this could not be saved. Free up space (e.g. clear site data for this page) and try again.');
+            return;
+        }
+        localStorage.setItem(key + '_uploaded_at', new Date().toISOString());
+        this.manualEditsEditingIndex = null;
+        this.renderManualEditsTable();
+        this.updateDataIndicators();
+        this.renderPortfolioGraphs();
+    }
+
+    manualDownloadCsv() {
+        const type = this.manualEditsType;
+        const rows = this.loadPortfolioData(type) || [];
+        if (rows.length === 0) {
+            alert(`No ${type} to download.`);
+            return;
+        }
+
+        const preferredColumns = type === 'positions'
+            ? ['symbol', 'quantity', 'average_entry_price', 'total_cost', 'currency', 'source']
+            : ['transaction_date', 'symbol', 'type', 'quantity', 'price', 'net_amount', 'currency', 'source', 'broker'];
+        const extraKeys = new Set();
+        rows.forEach(row => Object.keys(row).forEach(k => { if (!preferredColumns.includes(k)) extraKeys.add(k); }));
+        const headers = [...preferredColumns, ...extraKeys];
+
+        const escapeCsv = (v) => {
+            if (v === undefined || v === null) return '';
+            const s = String(v);
+            return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+        };
+        const lines = [headers.join(',')];
+        rows.forEach(row => lines.push(headers.map(h => escapeCsv(row[h])).join(',')));
+        const csv = lines.join('\n');
+
+        const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `investogram_${type}_${new Date().toISOString().slice(0, 10)}.csv`;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        URL.revokeObjectURL(url);
     }
 
     // Normalize a ticker symbol for cross-CSV matching. Strips exchange suffixes so that
