@@ -1834,6 +1834,7 @@ class StockDashboard {
                         <button class="mode-btn active" data-mode="net-trades">Net Trades</button>
                         <button class="mode-btn" data-mode="by-ticker">By Ticker</button>
                         ${maCatCols.length ? `<button class="mode-btn" data-mode="by-category">By Category</button>` : ''}
+                        <button class="timeframe-btn" data-timeframe="6m">6M</button>
                         <button class="timeframe-btn active" data-timeframe="1y">1Y</button>
                         <button class="timeframe-btn" data-timeframe="5y">5Y</button>
                         <button class="timeframe-btn" data-timeframe="all">ALL</button>
@@ -3641,7 +3642,7 @@ class StockDashboard {
             }
         } else {
             // Generate months based on timeframe (1y = 12 months, 5y = 60 months)
-            const monthCount = timeframe === '1y' ? 12 : 60;
+            const monthCount = timeframe === '6m' ? 6 : (timeframe === '1y' ? 12 : 60);
             for (let i = monthCount - 1; i >= 0; i--) {
                 const date = new Date(now.getFullYear(), now.getMonth() - i, 1);
                 const monthKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
@@ -3921,7 +3922,7 @@ class StockDashboard {
                 currentDate.setMonth(currentDate.getMonth() + 1);
             }
         } else {
-            const monthCount = timeframe === '1y' ? 12 : 60;
+            const monthCount = timeframe === '6m' ? 6 : (timeframe === '1y' ? 12 : 60);
             for (let i = monthCount - 1; i >= 0; i--) {
                 const date = new Date(now.getFullYear(), now.getMonth() - i, 1);
                 const monthKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
@@ -3950,14 +3951,20 @@ class StockDashboard {
             const ticker = trade.symbol;
             if (!ticker) return;
 
-            let amount = 0;
+            let rawAmount = 0;
             if (trade.net_amount) {
-                amount = parseFloat(trade.net_amount);
+                rawAmount = parseFloat(trade.net_amount);
             } else if (trade.quantity && trade.price) {
-                amount = parseFloat(trade.quantity) * parseFloat(trade.price);
+                rawAmount = parseFloat(trade.quantity) * parseFloat(trade.price);
             }
 
-            if (isNaN(amount) || amount === 0) return;
+            if (isNaN(rawAmount) || rawAmount === 0) return;
+
+            // Sign reflects buy (positive) vs sell (negative) per the trade's own `type` -
+            // not the source data's raw cash-flow sign, which SnapTrade/Questrade mark the
+            // opposite way (sells positive, buys negative) from what this chart displays.
+            const magnitude = Math.abs(rawAmount);
+            const amount = type === 'sell' ? -magnitude : (type === 'buy' ? magnitude : rawAmount);
 
             // Convert to CAD
             const amountInCAD = trade.currency === 'USD' ? amount * usdToCad : amount;
@@ -3967,7 +3974,7 @@ class StockDashboard {
                 tickerMonthData[ticker] = {};
             }
 
-            // Add to ticker's month total (amount is already signed: positive for buys, negative for sells)
+            // Add to ticker's month total
             if (!tickerMonthData[ticker][monthKey]) {
                 tickerMonthData[ticker][monthKey] = 0;
             }
@@ -4858,7 +4865,7 @@ class StockDashboard {
                 cur.setMonth(cur.getMonth() + 1);
             }
         } else {
-            const count = timeframe === '1y' ? 12 : 60;
+            const count = timeframe === '6m' ? 6 : (timeframe === '1y' ? 12 : 60);
             for (let i = count - 1; i >= 0; i--) {
                 const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
                 const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
@@ -4870,17 +4877,22 @@ class StockDashboard {
         const catMonthData = {};
         const allCats = new Set();
         tradesData.forEach(trade => {
-            if (trade.type?.toLowerCase() === 'dividend') return;
+            const type = trade.type?.toLowerCase();
+            if (type === 'dividend') return;
             const d = new Date(trade.transaction_date);
             if (isNaN(d.getTime())) return;
             const monthKey = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
             if (!monthsToShow.find(m => m.key === monthKey)) return;
             const cat = symbolToCat.get(trade.symbol?.toUpperCase());
             if (!cat) return;
-            let amount = 0;
-            if (trade.net_amount) amount = parseFloat(trade.net_amount);
-            else if (trade.quantity && trade.price) amount = parseFloat(trade.quantity) * parseFloat(trade.price);
-            if (isNaN(amount) || amount === 0) return;
+            let rawAmount = 0;
+            if (trade.net_amount) rawAmount = parseFloat(trade.net_amount);
+            else if (trade.quantity && trade.price) rawAmount = parseFloat(trade.quantity) * parseFloat(trade.price);
+            if (isNaN(rawAmount) || rawAmount === 0) return;
+            // Sign reflects buy (positive) vs sell (negative) per the trade's own `type` -
+            // not the source data's raw cash-flow sign (see renderMarketActivityByTicker).
+            const magnitude = Math.abs(rawAmount);
+            const amount = type === 'sell' ? -magnitude : (type === 'buy' ? magnitude : rawAmount);
             const amountCAD = trade.currency === 'USD' ? amount * usdToCad : amount;
             if (!catMonthData[cat]) catMonthData[cat] = {};
             catMonthData[cat][monthKey] = (catMonthData[cat][monthKey] || 0) + amountCAD;
