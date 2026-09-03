@@ -6,13 +6,15 @@ their Questrade / Wealthsimple account(s) and pull positions + trade activity in
 the same row shape CSV upload already produces (see app.js parseCSV / the
 `portfolio_positions` / `portfolio_trades` schema).
 
-Field names below are verified against the installed snaptrade-python-sdk (13.x)
-source, not guessed from docs:
+Field names below are verified against real API responses (a live Questrade connection),
+not just the SDK's type stubs - the stubs suggested activity.symbol was double-nested
+(symbol.symbol.symbol), but in practice it's a single level (symbol.symbol):
   - AccountPosition (get_all_account_positions): instrument.{kind,symbol}, units,
     price, cost_basis, currency - all returned as strings.
-  - AccountUniversalActivity (get_account_activities): id, symbol.symbol.symbol
-    (ticker, already Yahoo-style exchange-suffixed, e.g. "SHOP.TO"), type, trade_date,
-    currency.code, units, price, amount.
+  - AccountUniversalActivity (get_account_activities): id, symbol.symbol (ticker,
+    already Yahoo-style exchange-suffixed, e.g. "SHOP.TO"), type, trade_date,
+    currency.code, units, price, amount - currency is a top-level sibling of symbol,
+    not nested under it.
   - Account (list_user_accounts): id, institution_name.
 """
 
@@ -167,7 +169,7 @@ def _map_activities(raw_activities, broker_name):
         mapped_type = _ACTIVITY_TYPE_MAP.get((act.get('type') or '').upper())
         if not mapped_type:
             continue
-        symbol_obj = ((act.get('symbol') or {}).get('symbol') or {})
+        symbol_obj = act.get('symbol') or {}
         symbol = symbol_obj.get('symbol')
         currency_obj = act.get('currency') or {}
         if not symbol or not currency_obj.get('code'):
