@@ -137,6 +137,31 @@ def _map_positions(raw_positions):
     return rows
 
 
+def _map_cash_positions(balances):
+    """balances: list of Balance dicts from get_user_account_balance (one per currency held
+    in an account). Represents cash as synthetic 'CASH.<CCY>' position rows in the exact same
+    shape real positions use, so it flows through Asset Allocation, Holdings Overview, and
+    everywhere else that reads portfolio_positions with no chart code needing to know cash is
+    special - a ticker like "CASH.CAD" has no Yahoo quote, so the app's existing "fall back to
+    cost basis when no live price is found" behavior already does the right thing here.
+    """
+    rows = []
+    for bal in balances:
+        currency_obj = bal.get('currency') or {}
+        code = currency_obj.get('code')
+        cash = _to_float(bal.get('cash'))
+        if not code or cash is None or abs(cash) < 0.01:
+            continue
+        rows.append({
+            'symbol': f'CASH.{code}',
+            'quantity': 1,
+            'average_entry_price': cash,
+            'total_cost': cash,
+            'currency': code,
+        })
+    return rows
+
+
 def _aggregate_positions(rows):
     """Sum quantity/total_cost across accounts+brokers for the same symbol+currency."""
     grouped = {}
@@ -148,6 +173,17 @@ def _aggregate_positions(rows):
         grouped[key]['total_cost'] += row['total_cost']
     out = []
     for g in grouped.values():
+        if g['symbol'].startswith('CASH.'):
+            # Cash isn't share-counted - summing each account's placeholder quantity of 1
+            # would produce a meaningless "quantity: 4" instead of one lump-sum amount.
+            out.append({
+                'symbol': g['symbol'],
+                'quantity': 1,
+                'average_entry_price': g['total_cost'],
+                'total_cost': g['total_cost'],
+                'currency': g['currency'],
+            })
+            continue
         avg_price = (g['total_cost'] / g['quantity']) if g['quantity'] else 0
         out.append({
             'symbol': g['symbol'],
@@ -188,11 +224,12 @@ def _map_activities(raw_activities, broker_name):
 
 
 def sync_all(uid, user_secret, history_days=730):
-    """Pull positions + trade activity across every connected account/broker.
+    """Pull positions + cash balances + trade activity across every connected account/broker.
 
     Returns {'positions': [...], 'trades': [...]} in the exact row shape CSV upload
     produces (see reconcilePortfolioData in app.js), each row still missing the
-    `source`/`broker` tags - those are added by the frontend on reconcile.
+    `source`/`broker` tags - those are added by the frontend on reconcile. Cash is
+    included in `positions` as synthetic 'CASH.<CCY>' rows (see _map_cash_positions).
     """
     import datetime
 
@@ -216,6 +253,11 @@ def sync_all(uid, user_secret, history_days=730):
             account_id=account_id, user_id=uid, user_secret=user_secret,
         )
         all_position_rows.extend(_map_positions(positions_resp.body.get('results', [])))
+
+        balances_resp = client.account_information.get_user_account_balance(
+            account_id=account_id, user_id=uid, user_secret=user_secret,
+        )
+        all_position_rows.extend(_map_cash_positions(balances_resp.body or []))
 
         offset = 0
         page_size = 1000
