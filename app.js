@@ -2849,9 +2849,16 @@ class StockDashboard {
             return Math.abs(c === 'USD' ? v * usdToCad : v);
         };
 
+        // When a specific position exists for this exact symbol (e.g. "SHOP" as opposed to the
+        // separately-held "SHOP.TO"), match trades exactly too - otherwise a loose base-stripped
+        // match would pull in the other interlisted holding's trades as well. Only fall back to
+        // the loose match for trades-only symbols (fully sold, no position to anchor an exact
+        // symbol to), where the same sold holding may have been recorded inconsistently over time.
         const symBase = this.stripExchange(symbol);
         const symTrades = trades
-            ? trades.filter(t => this.stripExchange(t.symbol) === symBase)
+            ? trades.filter(t => pos
+                ? t.symbol?.toUpperCase() === symbol.toUpperCase()
+                : this.stripExchange(t.symbol) === symBase)
             : [];
 
         if (symTrades.length === 0 && trades?.length) {
@@ -5882,34 +5889,41 @@ class StockDashboard {
         // Get unique tickers — always union of positions + trades so both cards see the same set.
         // Position Deep Dive needs positions for cost/qty data, but stocks only in trades (fully
         // sold) should still be selectable and show what can be derived from trade history alone.
-        const tickers = new Set();
-        // canonicalByBase: base-symbol → canonical display symbol.
-        // Positions take priority (they carry the full exchange suffix like .TO).
-        // Trades fill in any remaining symbols. This deduplicates "XRE.TO" vs "XRE".
-        const canonicalByBase = new Map();
-        {
-            const positionsData = this.loadPortfolioData('positions');
-            if (positionsData) {
-                positionsData.forEach(p => {
-                    if (p.symbol && !this.portfolioExcludedSymbols.has(p.symbol.toUpperCase())) {
-                        const canon = p.symbol.toUpperCase();
-                        canonicalByBase.set(this.stripExchange(canon), canon);
-                    }
-                });
-            }
-            const tradesData = this.loadPortfolioData('trades');
-            if (tradesData) {
-                tradesData.forEach(trade => {
-                    if (trade.symbol && trade.type?.toLowerCase() !== 'dividend' &&
-                        !this.portfolioExcludedSymbols.has(trade.symbol.toUpperCase())) {
-                        const canon = trade.symbol.toUpperCase();
-                        const base  = this.stripExchange(canon);
-                        if (!canonicalByBase.has(base)) canonicalByBase.set(base, canon);
-                    }
-                });
-            }
+        //
+        // Every distinct symbol that has an actual position gets its own entry, verbatim — e.g.
+        // "SHOP" and "SHOP.TO" are genuinely separate interlisted holdings with their own
+        // qty/cost/currency, not the same stock formatted two ways, so they must not collapse
+        // into one dropdown entry (that used to hide whichever one lost the merge).
+        // Trades-only symbols (fully sold, no current position) fall back to base-stripped
+        // dedup, since there's no position row to anchor an exact symbol to and the same sold
+        // holding may have been recorded slightly differently over time (e.g. "XRE" vs "XRE.TO").
+        const positionSymbols = new Set();
+        const positionsData = this.loadPortfolioData('positions');
+        if (positionsData) {
+            positionsData.forEach(p => {
+                if (p.symbol && !this.portfolioExcludedSymbols.has(p.symbol.toUpperCase())) {
+                    positionSymbols.add(p.symbol.toUpperCase());
+                }
+            });
         }
-        for (const canon of canonicalByBase.values()) tickers.add(canon);
+        const positionBases = new Set([...positionSymbols].map(s => this.stripExchange(s)));
+
+        const tradesOnlyCanonicalByBase = new Map();
+        const tradesData = this.loadPortfolioData('trades');
+        if (tradesData) {
+            tradesData.forEach(trade => {
+                if (trade.symbol && trade.type?.toLowerCase() !== 'dividend' &&
+                    !this.portfolioExcludedSymbols.has(trade.symbol.toUpperCase())) {
+                    const canon = trade.symbol.toUpperCase();
+                    const base  = this.stripExchange(canon);
+                    if (!positionBases.has(base) && !tradesOnlyCanonicalByBase.has(base)) {
+                        tradesOnlyCanonicalByBase.set(base, canon);
+                    }
+                }
+            });
+        }
+
+        const tickers = new Set([...positionSymbols, ...tradesOnlyCanonicalByBase.values()]);
         const sortedTickers = Array.from(tickers).sort();
 
         // Show dropdown on focus
