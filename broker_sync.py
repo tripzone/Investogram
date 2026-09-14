@@ -128,7 +128,11 @@ def _map_positions(raw_positions):
         if not symbol or units is None or cost_basis is None or not currency:
             continue
         rows.append({
-            'symbol': symbol,
+            # Uppercased so _aggregate_positions's (symbol, currency) grouping key can't be
+            # split by two linked accounts/brokers reporting the same ticker in different case
+            # (e.g. "AAPL" vs "aapl") - that would silently produce two un-merged rows that
+            # only look identical once the frontend uppercases them for display.
+            'symbol': symbol.upper(),
             'quantity': units,
             'average_entry_price': cost_basis,
             'total_cost': units * cost_basis,
@@ -212,7 +216,9 @@ def _map_activities(raw_activities, broker_name):
             continue
         rows.append({
             'transaction_date': act.get('trade_date'),
-            'symbol': symbol,
+            # Uppercased to match _map_positions - keeps trade symbols consistent with position
+            # symbols so exact-symbol matching (e.g. dual-listed holdings) isn't case-fragile.
+            'symbol': symbol.upper(),
             'type': mapped_type,
             'currency': currency_obj.get('code'),
             'quantity': _to_float(act.get('units')),
@@ -223,13 +229,20 @@ def _map_activities(raw_activities, broker_name):
     return rows
 
 
-def sync_all(uid, user_secret, history_days=730):
+def sync_all(uid, user_secret, history_days=3650):
     """Pull positions + cash balances + trade activity across every connected account/broker.
 
     Returns {'positions': [...], 'trades': [...]} in the exact row shape CSV upload
     produces (see reconcilePortfolioData in app.js), each row still missing the
     `source`/`broker` tags - those are added by the frontend on reconcile. Cash is
     included in `positions` as synthetic 'CASH.<CCY>' rows (see _map_cash_positions).
+
+    history_days defaults to 10 years rather than a tighter window: for a position held
+    longer than the window, its original buy trade falls outside it and Position Deep
+    Dive's first-buy-date/IRR/holding-period math silently anchors to the earliest trade
+    it *can* see instead - understating how long the position has actually been held. A
+    wider window just returns fewer rows for brokers/accounts that don't have that much
+    history rather than erroring, so there's no downside to asking for more than needed.
     """
     import datetime
 
