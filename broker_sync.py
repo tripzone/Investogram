@@ -229,7 +229,7 @@ def _map_activities(raw_activities, broker_name):
     return rows
 
 
-def sync_all(uid, user_secret, history_days=3650):
+def sync_all(uid, user_secret, history_days=1000):
     """Pull positions + cash balances + trade activity across every connected account/broker.
 
     Returns {'positions': [...], 'trades': [...]} in the exact row shape CSV upload
@@ -237,12 +237,17 @@ def sync_all(uid, user_secret, history_days=3650):
     `source`/`broker` tags - those are added by the frontend on reconcile. Cash is
     included in `positions` as synthetic 'CASH.<CCY>' rows (see _map_cash_positions).
 
-    history_days defaults to 10 years rather than a tighter window: for a position held
-    longer than the window, its original buy trade falls outside it and Position Deep
-    Dive's first-buy-date/IRR/holding-period math silently anchors to the earliest trade
-    it *can* see instead - understating how long the position has actually been held. A
-    wider window just returns fewer rows for brokers/accounts that don't have that much
-    history rather than erroring, so there's no downside to asking for more than needed.
+    history_days was widened from a 2-year default to 10 years to stop truncating
+    long-held positions' first-buy-date/IRR/holding-period math - but that turned out to
+    have a real cost: broker sync started failing (observed as a mobile fetch failure),
+    likely because the wider range made the request to SnapTrade/the brokerage slower or
+    more failure-prone. Testing the 10-year window against this account found it recovered
+    only ~3 months of additional history over the 2-year default before hitting a hard
+    floor (SnapTrade/Questrade simply doesn't have anything earlier for this connection) -
+    so asking for 10 years bought effectively nothing beyond that floor. Set to ~2.75 years
+    (with margin past the observed floor) as a safer middle ground; a brokerage whose data
+    genuinely goes back further than this would still be truncated, but for one that
+    doesn't (as observed here), a narrower request is strictly better.
     """
     import datetime
 
