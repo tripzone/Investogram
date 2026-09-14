@@ -9,6 +9,18 @@ class StockAPI {
         this.cacheTimeout = 5 * 60 * 1000; // 5 minutes
         this.fundamentalsCache = new Map(); // Cache for 1 hour
         this.fundamentalsCacheTTL = 60 * 60 * 1000; // 1 hour
+
+        // Persistent (cross-reload) tier for weekly/fundamentals caches, backed by
+        // IndexedDB instead of localStorage (see idb-cache.js) — warmed once at startup
+        // by warmDiskCaches(). Until warm-up resolves, reads simply miss and fall through
+        // to a normal fetch, same as a cold cache.
+        this.weeklyDiskCache = new Map();
+        this.fundamentalsDiskCache = new Map();
+    }
+
+    async warmDiskCaches() {
+        this.weeklyDiskCache = await idbGetAll('weekly');
+        this.fundamentalsDiskCache = await idbGetAll('fundamentals');
     }
 
     getAPIKey() {
@@ -35,21 +47,16 @@ class StockAPI {
             return cached.data;
         }
 
-        // Weekly data: also check localStorage (end-of-day TTL)
+        // Weekly data: also check the IndexedDB-backed disk cache (end-of-day TTL)
         // Weekly closes only change once a week so persisting across refreshes is safe
         if (cacheKey.includes('interval=1wk')) {
-            try {
-                const stored = localStorage.getItem('wk_' + cacheKey);
-                if (stored) {
-                    const { date, data } = JSON.parse(stored);
-                    if (date === new Date().toISOString().slice(0, 10)) {
-                        // Warm in-memory cache so subsequent calls skip localStorage parsing
-                        this.cache.set(cacheKey, { data, timestamp: Date.now() });
-                        console.log('Using localStorage weekly cache for', cacheKey);
-                        return data;
-                    }
-                }
-            } catch (_) { /* ignore parse/quota errors */ }
+            const stored = this.weeklyDiskCache.get(cacheKey);
+            if (stored && stored.date === new Date().toISOString().slice(0, 10)) {
+                // Warm in-memory cache so subsequent calls skip the Map lookup
+                this.cache.set(cacheKey, { data: stored.data, timestamp: Date.now() });
+                console.log('Using disk weekly cache for', cacheKey);
+                return stored.data;
+            }
         }
 
         return null;
@@ -58,14 +65,11 @@ class StockAPI {
     setCache(cacheKey, data) {
         this.cache.set(cacheKey, { data, timestamp: Date.now() });
 
-        // Weekly data: also persist to localStorage so it survives page refreshes
+        // Weekly data: also persist to IndexedDB so it survives page refreshes
         if (cacheKey.includes('interval=1wk')) {
-            try {
-                localStorage.setItem('wk_' + cacheKey, JSON.stringify({
-                    date: new Date().toISOString().slice(0, 10),
-                    data
-                }));
-            } catch (_) { /* ignore quota errors — cache is best-effort */ }
+            const entry = { date: new Date().toISOString().slice(0, 10), data };
+            this.weeklyDiskCache.set(cacheKey, entry);
+            idbSet('weekly', cacheKey, entry).catch(() => {}); // best-effort, fire-and-forget
         }
     }
 
@@ -672,18 +676,13 @@ class StockAPI {
             return entry.data;
         }
 
-        // localStorage fallback — 24-hour TTL (fundamentals are quarterly data)
-        try {
-            const stored = localStorage.getItem('fund2_' + key);
-            if (stored) {
-                const { date, data } = JSON.parse(stored);
-                if (date === new Date().toISOString().slice(0, 10)) {
-                    // Warm in-memory cache
-                    this.fundamentalsCache.set(key, { data, timestamp: Date.now() });
-                    return data;
-                }
-            }
-        } catch (_) {}
+        // IndexedDB-backed disk fallback — 24-hour TTL (fundamentals are quarterly data)
+        const stored = this.fundamentalsDiskCache.get(key);
+        if (stored && stored.date === new Date().toISOString().slice(0, 10)) {
+            // Warm in-memory cache
+            this.fundamentalsCache.set(key, { data: stored.data, timestamp: Date.now() });
+            return stored.data;
+        }
 
         return null;
     }
@@ -691,12 +690,9 @@ class StockAPI {
     _setFundamentalsCache(symbol, data) {
         const key = symbol.toUpperCase();
         this.fundamentalsCache.set(key, { data, timestamp: Date.now() });
-        try {
-            localStorage.setItem('fund2_' + key, JSON.stringify({
-                date: new Date().toISOString().slice(0, 10),
-                data
-            }));
-        } catch (_) { /* ignore quota errors */ }
+        const entry = { date: new Date().toISOString().slice(0, 10), data };
+        this.fundamentalsDiskCache.set(key, entry);
+        idbSet('fundamentals', key, entry).catch(() => {}); // best-effort, fire-and-forget
     }
 
     async fetchFundamentals(symbols) {
@@ -729,3 +725,4 @@ class StockAPI {
 
 // Create global instance
 window.stockAPI = new StockAPI();
+window.stockAPI.warmDiskCaches(); // fire-and-forget — reads miss gracefully until this resolves

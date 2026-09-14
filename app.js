@@ -6141,15 +6141,10 @@ class StockDashboard {
 
         let priceHistory; // symbol -> {dateStr: closePrice}
 
-        try {
-            const stored = localStorage.getItem(LS_KEY);
-            if (stored) {
-                const parsed = JSON.parse(stored);
-                if (parsed.key === cacheKey && parsed.date === today) {
-                    priceHistory = parsed.priceHistory;
-                }
-            }
-        } catch (_) { /* ignore parse errors */ }
+        const stored = await idbGet('perf', LS_KEY);
+        if (stored && stored.key === cacheKey && stored.date === today) {
+            priceHistory = stored.priceHistory;
+        }
 
         if (!priceHistory) {
             priceHistory = {};
@@ -6179,9 +6174,7 @@ class StockDashboard {
                 return;
             }
 
-            try {
-                localStorage.setItem(LS_KEY, JSON.stringify({ key: cacheKey, date: today, priceHistory }));
-            } catch (_) { /* ignore quota errors — cache is best-effort */ }
+            await idbSet('perf', LS_KEY, { key: cacheKey, date: today, priceHistory });
         }
 
         // Use S&P 500 trading days as the reference timeline, filtered to selected period
@@ -6500,15 +6493,10 @@ class StockDashboard {
 
         let priceHistory;
 
-        try {
-            const stored = localStorage.getItem(LS_KEY);
-            if (stored) {
-                const parsed = JSON.parse(stored);
-                if (parsed.key === cacheKey && parsed.date === today) {
-                    priceHistory = parsed.priceHistory;
-                }
-            }
-        } catch (_) { /* ignore parse errors */ }
+        const stored = await idbGet('perf', LS_KEY);
+        if (stored && stored.key === cacheKey && stored.date === today) {
+            priceHistory = stored.priceHistory;
+        }
 
         if (!priceHistory) {
             priceHistory = {};
@@ -6538,9 +6526,7 @@ class StockDashboard {
                 return;
             }
 
-            try {
-                localStorage.setItem(LS_KEY, JSON.stringify({ key: cacheKey, date: today, priceHistory }));
-            } catch (_) { /* ignore quota errors — cache is best-effort */ }
+            await idbSet('perf', LS_KEY, { key: cacheKey, date: today, priceHistory });
         }
 
         // Filter weekly dates to selected period using ^GSPC as timeline reference
@@ -6882,13 +6868,8 @@ class StockDashboard {
         const LS_KEY = 'perf_price_cache';
 
         let priceHistory;
-        try {
-            const stored = localStorage.getItem(LS_KEY);
-            if (stored) {
-                const parsed = JSON.parse(stored);
-                if (parsed.key === cacheKey && parsed.date === today) priceHistory = parsed.priceHistory;
-            }
-        } catch (_) {}
+        const stored = await idbGet('perf', LS_KEY);
+        if (stored && stored.key === cacheKey && stored.date === today) priceHistory = stored.priceHistory;
 
         if (!priceHistory) {
             priceHistory = {};
@@ -6916,9 +6897,7 @@ class StockDashboard {
                 showError('Failed to load performance data. Please try again.');
                 return;
             }
-            try {
-                localStorage.setItem(LS_KEY, JSON.stringify({ key: cacheKey, date: today, priceHistory }));
-            } catch (_) {}
+            await idbSet('perf', LS_KEY, { key: cacheKey, date: today, priceHistory });
         }
 
         const cutoff = new Date();
@@ -7286,13 +7265,8 @@ class StockDashboard {
         const LS_KEY = 'perf_weekly_price_cache_10y';
 
         let priceHistory;
-        try {
-            const stored = localStorage.getItem(LS_KEY);
-            if (stored) {
-                const parsed = JSON.parse(stored);
-                if (parsed.key === cacheKey && parsed.date === today) priceHistory = parsed.priceHistory;
-            }
-        } catch (_) {}
+        const stored = await idbGet('perf', LS_KEY);
+        if (stored && stored.key === cacheKey && stored.date === today) priceHistory = stored.priceHistory;
 
         if (!priceHistory) {
             priceHistory = {};
@@ -7320,9 +7294,7 @@ class StockDashboard {
                 showError('Failed to load performance data. Please try again.');
                 return;
             }
-            try {
-                localStorage.setItem(LS_KEY, JSON.stringify({ key: cacheKey, date: today, priceHistory }));
-            } catch (_) {}
+            await idbSet('perf', LS_KEY, { key: cacheKey, date: today, priceHistory });
         }
 
         const cutoff = new Date();

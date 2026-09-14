@@ -139,6 +139,7 @@ Runs on port `8080`. Requires `serviceAccountKey.json` in the project root for F
 | `broker_crypto.py` | Cloud KMS encrypt/decrypt helpers for the stored SnapTrade user secret |
 | `app.js` | Main frontend logic — state, rendering, charts, drag-drop, Broker Sync UI |
 | `api.js` | Yahoo Finance integration — request queue, caching, data parsing |
+| `idb-cache.js` | IndexedDB-backed persistence for large chart/fundamentals caches — see "Client-Side Caching" below. Must load before `api.js`/`app.js` |
 | `auth.js` | Firebase auth — Google sign-in, localStorage sync to Firestore |
 | `index.html` | App shell — tabs, modals, CDN script tags |
 | `styles.css` | All styling — dark theme, responsive layout |
@@ -185,6 +186,31 @@ Browser
 ---
 
 ## Client-Side State
+
+### Client-Side Caching
+
+localStorage is capped at ~5MB per origin on every browser (desktop and mobile) and only
+holds the real synced app data (below) plus a few small bounded caches (`ai_stock_<symbol>`,
+one entry per symbol, overwritten in place). The large, unbounded chart/fundamentals caches
+live in **IndexedDB** instead (`idb-cache.js`, database `investogram-cache`, object stores
+`weekly`/`fundamentals`/`perf`), so they don't compete with real data for that 5MB budget:
+
+- `weekly` — weekly OHLC chart data (`StockAPI.weeklyDiskCache` in `api.js`, one entry per
+  symbol+range+interval combination, end-of-day TTL)
+- `fundamentals` — per-symbol fundamentals (`StockAPI.fundamentalsDiskCache`, 24h TTL)
+- `perf` — Portfolio Performance chart price-history blobs (`app.js`, keyed by
+  `perf_price_cache` / `perf_weekly_price_cache_10y`, end-of-day TTL)
+
+Reads/writes go through `idbGet`/`idbSet`/`idbGetAll` (`idb-cache.js`). `StockAPI` warms
+`weeklyDiskCache`/`fundamentalsDiskCache` from IndexedDB once at startup
+(`warmDiskCaches()`, fire-and-forget) so the read paths used inside synchronous `.filter()`
+predicates elsewhere in `app.js` stay synchronous — a cache read before warm-up resolves is
+just treated as a miss, same as a cold cache. If IndexedDB is unavailable, every `idb-cache.js`
+function degrades to a no-op/miss rather than breaking the app.
+
+`idb-cache.js` also runs a one-time migration on load (guarded by the `_cache_migration_v1`
+localStorage flag) that deletes any pre-existing `wk_*`/`fund2_*`/`fund_*`/`perf_*`
+localStorage keys left over from before this cache moved to IndexedDB.
 
 ### localStorage Keys
 
