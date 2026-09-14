@@ -2236,6 +2236,7 @@ button:active {
     font-size: 13px;
     flex-wrap: nowrap;
     white-space: nowrap;
+    overflow: hidden;
 }
 
 .price-value {
