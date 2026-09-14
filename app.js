@@ -4304,7 +4304,7 @@ class StockDashboard {
             }
 
             return {
-                symbol, currentValueCAD, weightedYears, portfolioPct,
+                symbol, qty, currentValueCAD, weightedYears, portfolioPct,
                 totalPnlCAD, priceReturnPct, divReturnPct, totalReturnPct,
                 annTotalReturn, cagrTotal, yearsHeld,
             };
@@ -4324,6 +4324,7 @@ class StockDashboard {
         // Formatters
         const showValues = this.showValues;
         const fmtCAD  = v => `$${Math.abs(v).toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
+        const fmtShares = v => v % 1 === 0 ? v.toLocaleString() : v.toLocaleString('en-US', { maximumFractionDigits: 4 });
         const dash    = `<span class="ho-stale">—</span>`;
         const fmtPct  = v => v != null ? `${v >= 0 ? '+' : ''}${v.toFixed(1)}%` : dash;
         const fmtYrs  = v => v != null ? v.toFixed(1) + 'y' : dash;
@@ -4340,6 +4341,7 @@ class StockDashboard {
             return `<tr class="ho-row">
                 <td class="ho-td ho-symbol">${r.symbol}</td>
                 ${showValues ? `<td class="ho-td ${valueCls}">${fmtCAD(r.currentValueCAD)}</td>` : ''}
+                <td class="ho-td">${fmtShares(r.qty)}</td>
                 <td class="ho-td">${fmtYrs(r.weightedYears)}</td>
                 <td class="ho-td">${r.portfolioPct != null ? r.portfolioPct.toFixed(1) + '%' : dash}</td>
                 ${showValues ? `<td class="ho-td ${clr(r.totalPnlCAD)}">${pnlSign}${fmtCAD(r.totalPnlCAD)}</td>` : ''}
@@ -4357,6 +4359,7 @@ class StockDashboard {
                     <thead><tr>
                         ${th('Symbol', 'symbol')}
                         ${showValues ? th('Value', 'currentValueCAD') : ''}
+                        ${th('Shares', 'qty')}
                         ${th('Avg Yrs', 'weightedYears')}
                         ${th('% Port', 'portfolioPct')}
                         ${showValues ? th('Total P&L', 'totalPnlCAD') : ''}

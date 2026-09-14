@@ -73,11 +73,17 @@ async function pullFromServer() {
         await pushToServer();
     }
 
-    // Snapshot guest-session data before server overwrites it
-    const guestStocks = JSON.parse(localStorage.getItem('stock_list') || '[]');
-    const guestWatchlist = JSON.parse(localStorage.getItem('watchlist') || '[]');
-    const guestGraphs = JSON.parse(localStorage.getItem('portfolio_graphs') || '[]');
-    const guestColors = JSON.parse(localStorage.getItem('stock_colors') || '{}');
+    // Snapshot guest-session data before server overwrites it. This "guest additions" merge
+    // below exists to preserve local edits made before a device ever signed in — but it must
+    // only run the FIRST time this device syncs. Otherwise "guestGraphs" is really just this
+    // device's own stale cached copy from before this pull (e.g. a divider deleted from
+    // another device), and the merge would wrongly treat that deletion as an unsynced local
+    // addition and resurrect + re-push it, permanently undoing the deletion everywhere.
+    const isFirstSyncOnThisDevice = localStorage.getItem('_synced_before') !== '1';
+    const guestStocks = isFirstSyncOnThisDevice ? JSON.parse(localStorage.getItem('stock_list') || '[]') : [];
+    const guestWatchlist = isFirstSyncOnThisDevice ? JSON.parse(localStorage.getItem('watchlist') || '[]') : [];
+    const guestGraphs = isFirstSyncOnThisDevice ? JSON.parse(localStorage.getItem('portfolio_graphs') || '[]') : [];
+    const guestColors = isFirstSyncOnThisDevice ? JSON.parse(localStorage.getItem('stock_colors') || '{}') : {};
 
     try {
         const resp = await fetch('/api/user/data', {
@@ -158,6 +164,10 @@ async function pullFromServer() {
             // Push merged result up so other devices see the guest additions too
             await pushToServer();
         }
+
+        // From here on, this device's local data is a synced mirror of the server, not
+        // unsynced guest data — the merge above must not run again on future pulls.
+        _originalSetItem('_synced_before', '1');
 
         console.log('[auth] Loaded user data from server');
     } catch (e) {
@@ -255,14 +265,17 @@ function setSignedOutState() {
 
 // ── Auth state observer ────────────────────────────────────────────────────────
 
-firebaseAuth.onAuthStateChanged(async (user) => {
-    currentUser = user;
-
-    if (user) {
-        guestMode = false;
-        hideAuthOverlay();
-        setSignedInState(user);
-
+// Pulls the latest server data and applies it to the live dashboard (re-rendering only
+// what actually changed). Used both on sign-in and whenever a backgrounded tab regains
+// focus — a tab that's been sitting open with stale in-memory data would otherwise push
+// that stale copy back to the server the next time it saves *anything*, silently undoing
+// changes made from another tab/device in the meantime (e.g. a deleted portfolio divider
+// reappearing). Refreshing on focus means the tab is never stale by the time it acts.
+let refreshInFlight = false;
+async function refreshFromServer() {
+    if (refreshInFlight) return;
+    refreshInFlight = true;
+    try {
         // Snapshot before pull so we can skip re-renders when server data matches local.
         const prevStockList = JSON.stringify(window.dashboard?.stockList);
         const prevWatchlist  = JSON.stringify(window.dashboard?.watchlist);
@@ -290,12 +303,33 @@ firebaseAuth.onAuthStateChanged(async (user) => {
             window.dashboard.renderPortfolioGraphs();
             window.dashboard.updateDataIndicators();
         }
+    } finally {
+        refreshInFlight = false;
+    }
+}
+
+firebaseAuth.onAuthStateChanged(async (user) => {
+    currentUser = user;
+
+    if (user) {
+        guestMode = false;
+        hideAuthOverlay();
+        setSignedInState(user);
+        await refreshFromServer();
     } else {
         guestMode = true;
         setSignedOutState();
         if (!guestMode) {
             showAuthOverlay();
         }
+    }
+});
+
+// A tab left open in the background can hold stale data — refresh it from the server
+// as soon as it's visible again, before the user has a chance to act on (and re-save) it.
+document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible' && currentUser) {
+        refreshFromServer();
     }
 });
 
