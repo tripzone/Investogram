@@ -540,8 +540,24 @@ class StockDashboard {
                     throw new Error('No valid data found in file');
                 }
 
+                let rowsToUpload = result;
+                let skippedDuplicates = 0;
+                if (uploadType === 'trades') {
+                    // Drop rows that already exist via broker sync (e.g. a historic CSV export
+                    // whose recent trades overlap with what's now synced) - otherwise the same
+                    // real-world dividend/trade gets counted twice in Position Deep Dive's totals.
+                    const existingSynced = (this.loadPortfolioData('trades') || []).filter(t => t.source === 'synced');
+                    if (existingSynced.length > 0) {
+                        rowsToUpload = result.filter(row => !this.isDuplicateOfSyncedTrade(row, existingSynced));
+                        skippedDuplicates = result.length - rowsToUpload.length;
+                    }
+                    if (rowsToUpload.length === 0) {
+                        throw new Error('Every row in this file already matches a synced trade — nothing new to upload');
+                    }
+                }
+
                 // Store in localStorage, preserving any synced/manual rows already there
-                if (!this.reconcilePortfolioData(uploadType, result, 'csv')) return;
+                if (!this.reconcilePortfolioData(uploadType, rowsToUpload, 'csv')) return;
 
                 // Update indicators
                 this.updateDataIndicators();
@@ -549,7 +565,10 @@ class StockDashboard {
 
                 // Success
                 this.closeUploadModal();
-                alert(`Successfully uploaded ${result.length} ${uploadType} records`);
+                const dupSuffix = skippedDuplicates > 0
+                    ? ` (${skippedDuplicates} skipped — already present via broker sync)`
+                    : '';
+                alert(`Successfully uploaded ${rowsToUpload.length} ${uploadType} records${dupSuffix}`);
             }
 
         } catch (error) {
@@ -662,6 +681,54 @@ class StockDashboard {
         }
         localStorage.setItem(key + '_uploaded_at', new Date().toISOString());
         return true;
+    }
+
+    // A historic CSV export and a broker sync often describe the same real-world trade with
+    // slightly different transaction dates (trade date vs settlement date, typically 1-3 days
+    // apart) and, for sells, slightly different reported price. Quantity is the reliable
+    // signal across sources - it matched exactly in every case observed - so match on
+    // symbol+type+currency+quantity within a loose date window; dividends (which usually carry
+    // no quantity) fall back to matching on amount instead.
+    isDuplicateOfSyncedTrade(csvRow, existingSyncedTrades) {
+        const DAY_MS = 24 * 60 * 60 * 1000;
+        const DATE_TOLERANCE_DAYS = 5;
+
+        // Some sources use type='trade' with the sign of quantity distinguishing buy/sell
+        // instead of separate 'buy'/'sell' values - normalize both sides the same way the
+        // rest of the app already does before comparing, or 'trade' vs 'sell' would never match.
+        const classify = (type, qty) => {
+            const tp = (type || '').toLowerCase();
+            if (tp === 'dividend') return 'dividend';
+            const rawQty = parseFloat(qty || 0);
+            if (tp === 'buy' || (tp === 'trade' && rawQty >= 0)) return 'buy';
+            if (tp === 'sell' || (tp === 'trade' && rawQty < 0)) return 'sell';
+            return tp;
+        };
+
+        const csvSymbol = (csvRow.symbol || '').toUpperCase();
+        const csvType = classify(csvRow.type, csvRow.quantity);
+        const csvDate = new Date(csvRow.transaction_date);
+        if (!csvSymbol || isNaN(csvDate.getTime())) return false;
+        const csvQty = Math.abs(parseFloat(csvRow.quantity || 0));
+        const csvAmt = parseFloat(csvRow.net_amount ?? csvRow.amount ?? csvRow.total ?? csvRow.value ?? NaN);
+
+        return existingSyncedTrades.some(s => {
+            if ((s.symbol || '').toUpperCase() !== csvSymbol) return false;
+            if (classify(s.type, s.quantity) !== csvType) return false;
+            if ((s.currency || '') !== (csvRow.currency || '')) return false;
+
+            const sDate = new Date(s.transaction_date);
+            if (isNaN(sDate.getTime())) return false;
+            if (Math.abs(sDate - csvDate) / DAY_MS > DATE_TOLERANCE_DAYS) return false;
+
+            const sQty = Math.abs(parseFloat(s.quantity || 0));
+            if (csvQty > 0 || sQty > 0) return Math.abs(csvQty - sQty) < 0.01;
+
+            // Both sides have no quantity (typical for dividends) — compare amount instead.
+            const sAmt = parseFloat(s.net_amount ?? s.amount ?? s.total ?? s.value ?? NaN);
+            if (isNaN(csvAmt) || isNaN(sAmt)) return true; // same symbol/type/currency/date window
+            return Math.abs(csvAmt - sAmt) < 0.5;
+        });
     }
 
     // ── Broker Sync (SnapTrade) ─────────────────────────────────────────────
